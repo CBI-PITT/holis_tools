@@ -84,7 +84,7 @@ class spool_set_interpreter:
         self.spool_shape = (numFramesPerSpool, numRows, numColumns)
 
     def _load_spool_file(self,spool_file_name):
-        array = np.frombuffer(self.spool_set[spool_file_name],dtype=a.dtype)
+        array = np.frombuffer(self.spool_set[spool_file_name],dtype=self.dtype)
         return np.reshape(array, self.spool_shape)
 
     def __getitem__(self,key):
