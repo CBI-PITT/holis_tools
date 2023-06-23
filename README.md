@@ -1,6 +1,6 @@
-# compression_tools
+# holis_tools
 
-## This repository offers tools to assist in file compression
+## This repository offers tools to deal with access to holis_data
 
 #### Installing:
 
@@ -20,17 +20,29 @@ pip install -e /dir/of/choice/holis_tools
 
 
 
-##### <u>spool_zip_collection:</u>
+##### <u>spool_reader:</u>
 
 ###### Description:
 
-This tool enables a .zip file containing a collection of spools files that represents 1 strip to be read and formatted as numpy arrays for downstream processing. Currently the package assumes that the zip file is formatted according to the compression_tools library found here: https://github.com/CBI-PITT/compression_tools/tree/main/compression_tools
+This tool enables a .zip file containing a collection of spools files that represents 1 yz strip to be read and formatted as numpy array(s) for downstream processing. Currently the package assumes that the zip file is formatted according to the compression_tools library found here: https://github.com/CBI-PITT/compression_tools/tree/main/compression_tools
 
 ###### Usage example:
 
-```bash
-Stay tuned!
-```
+```python
+from compression_tools.alt_zip import alt_zip
+from holis_tool.spool_reader import spool_set_interpreter
+import numpy as np
 
-###### Note:
+# Location of zip file contatining spool files
+test_spool_zip = r'/zip/file/writted/using/compression_tools/containing/spool/files.zip'
+
+# Instantiate class to manage spool files
+a = spool_set_interpreter(test_spool_zip)
+
+# Extract the 100th spool file only
+hundredth_spool_file = a[100]
+
+# assemble all spool files into a complete acquisition strip
+b = a.assemble()
+```
 
