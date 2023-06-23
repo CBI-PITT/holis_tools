@@ -4,9 +4,9 @@ from compression_tools.alt_zip import alt_zip
 import configparser
 import numpy as np
 
-test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV5_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
-
-spool_set = alt_zip(test_spool_zip)
+# test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV5_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
+#
+# spool_set = alt_zip(test_spool_zip)
 
 # with open(r'H:\globus\pitt\bil\hillman\spool_examples\Planes_secondColor_run12__z01_y12_Exc_488nm_660nm\acquisitionmetadata.ini','r') as f:
 #     print(f.read())
@@ -99,6 +99,6 @@ class spool_set_interpreter:
         return item in self.spool_files
 
 
-a = spool_set_interpreter(test_spool_zip)
-a._load_spool_file('8970000000spool.dat')
+# a = spool_set_interpreter(test_spool_zip)
+# a._load_spool_file('8970000000spool.dat')
 
