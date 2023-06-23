@@ -110,6 +110,7 @@ class spool_set_interpreter:
             start = idx*axis_0_shape
             stop = start + axis_0_shape
             canvas[start:stop] = spool
+        return canvas
 
 # a = spool_set_interpreter(test_spool_zip)
 # a._load_spool_file('8970000000spool.dat')
