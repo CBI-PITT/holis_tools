@@ -3,6 +3,8 @@
 from compression_tools.alt_zip import alt_zip
 import configparser
 import numpy as np
+import io
+
 
 # test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV5_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
 #
