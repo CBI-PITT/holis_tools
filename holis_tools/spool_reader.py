@@ -4,10 +4,13 @@ from compression_tools.alt_zip import alt_zip
 import configparser
 import numpy as np
 import io
+import matplotlib
+import warnings
 
 
-# test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV5_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
-#
+
+# test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV9_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
+
 # spool_set = alt_zip(test_spool_zip)
 
 # with open(r'H:\globus\pitt\bil\hillman\spool_examples\Planes_secondColor_run12__z01_y12_Exc_488nm_660nm\acquisitionmetadata.ini','r') as f:
@@ -103,15 +106,58 @@ class spool_set_interpreter:
     def __len__(self):
         return len(self.spool_files)
 
+    # def assemble(self):
+    #     axis_0_shape = self.spool_shape[0]
+    #     canvas = np.zeros((axis_0_shape*len(self.spool_files),*self.spool_shape[1:]), dtype=self.dtype)
+    #     for idx,spool in enumerate(self):
+    #         start = idx*axis_0_shape
+    #         stop = start + axis_0_shape
+    #         canvas[start:stop] = spool
+    #     return canvas
+
+    # def _get_spool_names(self):
+    #     a = '0000000000spool.dat'
+    #     for i in range(1,len(self)+1):
+    #         temp = i
+    #         a = ''
+    #         for j in range(1,11):
+    #             a = a + str(int((temp % 10**j) / 10**(j-1)))
+    #             temp = temp - temp % 10**j
+    #         a + 'spool.dat'
+    #         print(a)
+
+    def _get_spool_names_in_order(self):
+        '''
+        Spool files are ordered sequentially 0,1,2,...,201,202,203,... but are named as a reverse number padded to
+        10 digits (0000000000,1000000000,20000000000,...,1020000000,2020000000,3020000000,...) + spool.dat
+        '''
+        spool_files = self.spool_files
+        misses=0
+        for idx in range(len(self)):
+            # Convert index to string, pad with zeros to 10 digits and reverse
+            tmp = str(idx+misses).zfill(10)[::-1]
+            tmp = f'{tmp}spool.dat'
+            if tmp in spool_files:
+                yield tmp
+            else:
+                warnings.warn(f"{tmp} not located in spool directory")
+                misses += 1
+
     def assemble(self):
         axis_0_shape = self.spool_shape[0]
-        canvas = np.zeros((axis_0_shape*len(self.spool_files),*self.spool_shape[1:]))
-        for idx,spool in enumerate(self):
+        canvas = np.zeros((axis_0_shape*len(self.spool_files),*self.spool_shape[1:]), dtype=self.dtype)
+        for idx,spool_name in enumerate(self._get_spool_names_in_order()):
             start = idx*axis_0_shape
             stop = start + axis_0_shape
-            canvas[start:stop] = spool
+            canvas[start:stop] = self[spool_name]
         return canvas
 
+
 # a = spool_set_interpreter(test_spool_zip)
-# a._load_spool_file('8970000000spool.dat')
+# b = a.assemble()
+#
+# c = b[:,100]
+# skimage.io.imshow(c*100)
+# plt.show()
+
 
