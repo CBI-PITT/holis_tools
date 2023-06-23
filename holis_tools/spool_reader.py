@@ -100,6 +100,16 @@ class spool_set_interpreter:
     def __contains__(self, item):
         return item in self.spool_files
 
+    def __len__(self):
+        return len(self.spool_files)
+
+    def assemble(self):
+        axis_0_shape = self.spool_shape[0]
+        canvas = np.zeros((axis_0_shape*len(self.spool_files),*self.spool_shape[1:]))
+        for idx,spool in enumerate(self):
+            start = idx*axis_0_shape
+            stop = start + axis_0_shape
+            canvas[start:stop] = spool
 
 # a = spool_set_interpreter(test_spool_zip)
 # a._load_spool_file('8970000000spool.dat')
