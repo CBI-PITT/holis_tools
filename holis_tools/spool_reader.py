@@ -49,10 +49,10 @@ class spool_set_interpreter:
     def _extract_config_values(self):
         self.acquisition_metadata = {}
         # ini info
-        self.acquisition_metadata['height'] = config.getint('data', 'AOIHeight')
-        self.acquisition_metadata['width'] = config.getint('data', 'AOIWidth')
-        self.acquisition_metadata['stride'] = config.getint('data', 'AOIStride')
-        dtype = config.get('data', 'PixelEncoding')
+        self.acquisition_metadata['height'] = self.config.getint('data', 'AOIHeight')
+        self.acquisition_metadata['width'] = self.config.getint('data', 'AOIWidth')
+        self.acquisition_metadata['stride'] = self.config.getint('data', 'AOIStride')
+        dtype = self.config.get('data', 'PixelEncoding')
 
         if dtype == 'Mono16':
             dtype = np.dtype('uint16')
@@ -62,10 +62,10 @@ class spool_set_interpreter:
         self.acquisition_metadata['dtype'] = dtype
         self.dtype = dtype
 
-        self.nbytes = config.getint('data', 'ImageSizeBytes')
+        self.nbytes = self.config.getint('data', 'ImageSizeBytes')
         self.acquisition_metadata['nbytes'] = self.nbytes
 
-        self.acquisition_metadata['images'] = config.getint('multiimage', 'ImagesPerFile')
+        self.acquisition_metadata['images'] = self.config.getint('multiimage', 'ImagesPerFile')
 
         numDepths = self.acquisition_metadata['height']
         numLatPix = self.acquisition_metadata['stride'] // 2
