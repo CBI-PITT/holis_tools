@@ -9,7 +9,7 @@ import warnings
 
 
 
-# test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV9_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
+test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV5_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
 
 # spool_set = alt_zip(test_spool_zip)
 
@@ -23,7 +23,8 @@ class spool_set_interpreter:
         self.location = compression_tools_zip_file
         self.spool_set = alt_zip(self.location)
 
-        self._list_spool_files()
+        self._what_spool_format()
+        self.spool_files = tuple(self._get_spool_names_in_order()) # In order
         self._get_acquisitionparameters_str()
         self._get_config()
         self._extract_config_values()
@@ -33,8 +34,16 @@ class spool_set_interpreter:
     def entries(self):
         return self.spool_set.entries
 
+    def _what_spool_format(self):
+        if 'Spooled files.sifx' in self.entries:
+            format = 'zyla'
+        else:
+            raise TypeError("Unknown or unsupported spool file format")
+
+        self.format = format
+
     def _list_spool_files(self):
-        self.spool_files = sorted(
+        return sorted(
             tuple(
             [x for x in self.entries if '0spool.dat' in x]
         )
@@ -65,8 +74,8 @@ class spool_set_interpreter:
         self.acquisition_metadata['dtype'] = dtype
         self.dtype = dtype
 
-        self.nbytes = self.config.getint('data', 'ImageSizeBytes')
-        self.acquisition_metadata['nbytes'] = self.nbytes
+        self.spool_nbytes = self.config.getint('data', 'ImageSizeBytes')
+        self.acquisition_metadata['nbytes'] = self.spool_nbytes
 
         self.acquisition_metadata['images'] = self.config.getint('multiimage', 'ImagesPerFile')
 
@@ -98,7 +107,7 @@ class spool_set_interpreter:
             return self._load_spool_file(self.spool_files[key])
 
     def __iter__(self):
-        yield from (self[x] for x in range(len(self.spool_files)))
+        yield from (self[x] for x in range(len(self)))
 
     def __contains__(self, item):
         return item in self.spool_files
@@ -106,34 +115,15 @@ class spool_set_interpreter:
     def __len__(self):
         return len(self.spool_files)
 
-    # def assemble(self):
-    #     axis_0_shape = self.spool_shape[0]
-    #     canvas = np.zeros((axis_0_shape*len(self.spool_files),*self.spool_shape[1:]), dtype=self.dtype)
-    #     for idx,spool in enumerate(self):
-    #         start = idx*axis_0_shape
-    #         stop = start + axis_0_shape
-    #         canvas[start:stop] = spool
-    #     return canvas
-
-    # def _get_spool_names(self):
-    #     a = '0000000000spool.dat'
-    #     for i in range(1,len(self)+1):
-    #         temp = i
-    #         a = ''
-    #         for j in range(1,11):
-    #             a = a + str(int((temp % 10**j) / 10**(j-1)))
-    #             temp = temp - temp % 10**j
-    #         a + 'spool.dat'
-    #         print(a)
 
     def _get_spool_names_in_order(self):
         '''
         Spool files are ordered sequentially 0,1,2,...,201,202,203,... but are named as a reverse number padded to
         10 digits (0000000000,1000000000,20000000000,...,1020000000,2020000000,3020000000,...) + spool.dat
         '''
-        spool_files = self.spool_files
+        spool_files = self._list_spool_files()
         misses=0
-        for idx in range(len(self)):
+        for idx in range(len(spool_files)):
             # Convert index to string, pad with zeros to 10 digits and reverse
             tmp = str(idx+misses).zfill(10)[::-1]
             tmp = f'{tmp}spool.dat'
@@ -145,19 +135,21 @@ class spool_set_interpreter:
 
     def assemble(self):
         axis_0_shape = self.spool_shape[0]
-        canvas = np.zeros((axis_0_shape*len(self.spool_files),*self.spool_shape[1:]), dtype=self.dtype)
-        for idx,spool_name in enumerate(self._get_spool_names_in_order()):
+        canvas = np.zeros((axis_0_shape*len(self),*self.spool_shape[1:]), dtype=self.dtype)
+        for idx,spool_file in enumerate(self):
             start = idx*axis_0_shape
             stop = start + axis_0_shape
-            canvas[start:stop] = self[spool_name]
+            canvas[start:stop] = spool_file
         return canvas
 
 
-# a = spool_set_interpreter(test_spool_zip)
-# b = a.assemble()
-#
-# c = b[:,100]
-# skimage.io.imshow(c*100)
-# plt.show()
+a = spool_set_interpreter(test_spool_zip)
+b = a.assemble()
+
+c = b[:,100]
+import skimage
+import matplotlib.pyplot as plt
+skimage.io.imshow(c*100)
+plt.show()
 
 
