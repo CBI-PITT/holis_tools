@@ -11,9 +11,12 @@ pip install numpy scikit-image matplotlib tifffile
 
 import numpy as np
 from ast import literal_eval
+import json
 from pprint import pprint as print
+from zarr_stores.h5_nested_store import H5_Nested_Store
 
 spool_file = r'H:\globus\pitt\bil\hillman\spool_examples\hicam\2023_04_24_HiCAMTest_sampleDataSet\hicam-scan-ROIb15_HiCAM FLUO_1875-ST-272.fli'
+spool_file = r'/CBI_Hive/globus/pitt/bil/hillman/spool_examples/hicam/2023_04_24_HiCAMTest_sampleDataSet/hicam-scan-ROIb15_HiCAM FLUO_1875-ST-272.fli'
 
 header_info = {
     # '{FLIMIMAGE}'
@@ -39,7 +42,6 @@ header_info = {
     'hasDarkImage': None,
     'lutPath': None,
     'timestamps': None,  # Number of frames collected
-
     # '[DEVICE SETTINGS]'
     'Intensifier_PowerSwitch': None,
     'Intensifier_MCPvoltage': None,
@@ -72,8 +74,7 @@ header_info = {
     'Intensifier_MultipleExposureSwitch': None,
     'Intensifier_NumberOfMultipleExposurePulses': None,
     'Intensifier_GateEnableInputSwitch': None,
-
-    'headerLength': header_length,  # Index of last entry in the header
+    # 'headerLength': header_length,  # Index of last entry in the header
 }
 def read_header(file_name):
     '''
@@ -103,7 +104,7 @@ def read_header(file_name):
         if read_n == 40:
             raise KeyError('Error while reading HICAM Header, Header Length too long?')
 
-
+    raw_header_string = fileinfo
     # Extract header info
     fileinfo = fileinfo.split('\\n')
     for idx, ii in enumerate(fileinfo):
@@ -121,9 +122,9 @@ def read_header(file_name):
             header_info[key] = literal_eval(value)
         except Exception:
             pass
-
-    # print(header_info)
-    return header_info
+    header_info['headerLength'] = header_length
+    print(header_info)
+    return header_info, raw_header_string
 
 def read_uint12(data_chunk, coerce_to_uint16_values=False):
     '''
@@ -150,7 +151,7 @@ def read_uint12(data_chunk, coerce_to_uint16_values=False):
 def read_data_file(file_name, header_info=None):
 
     if header_info is None:
-        header_info = read_header(file_name)
+        header_info, _ = read_header(file_name)
 
     ################################################################
     ## READ HICAM DATA IN ALL AT ONCE then convert to numpy z-stack
@@ -174,11 +175,58 @@ def read_data_file(file_name, header_info=None):
 
         # Data to uint16 where uint12 values have been scaled to uint16 values
         # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
-        canvas = read_uint12(data, coerce_to_uint16_values=True)
+        # canvas = read_uint12(data, coerce_to_uint16_values=True)
+        canvas = read_uint12(data, coerce_to_uint16_values=False)
 
         output[idx] = canvas.reshape((header_info['y'], header_info['x']))
 
     return output
+
+'''
+Code below is designed to package a hicam spool file as a zarr
+'''
+def header_info_to_json(json_file,header_info):
+    with open(json_file, 'w') as f:
+        f.write(json.dumps(header_info, indent=4))
+
+def send_hicam_to_zarr(hicam_file,zarr_location,compressor):
+
+import os
+from numcodecs import Blosc
+import zarr
+
+zarr_location = os.path.split(spool_file)[0] + '/out_zarr7' ## TEMP FOR TESTING
+
+# Get Store
+store = H5_Nested_Store(zarr_location)
+
+# Dump header information to root of zarr store
+hicam_file = spool_file
+header_dict, raw_string = read_header(hicam_file)
+header_json = json.dumps(header_dict, indent=4)
+store['header.json'] = header_json.encode()
+store['header_raw.txt'] = raw_string.encode()
+
+image_data = read_data_file(hicam_file, header_info=None)
+
+compressor = Blosc(
+    cname='zstd',
+    clevel=5,
+    shuffle=1,
+    blocksize=0
+)
+
+# chunks = (1,1,500,*image_data.shape[1:])
+chunks = (500,*image_data.shape[1:])
+chunks = (128,image_data.shape[1]//4, image_data.shape[2]//4)
+
+# array = zarr.zeros(store=store, shape=(1,1,*image_data.shape), chunks=chunks, compressor=compressor, dtype=image_data.dtype)
+array = zarr.zeros(store=store, shape=image_data.shape, chunks=chunks, compressor=compressor, dtype=image_data.dtype)
+# array[0,0] = image_data
+array[:] = image_data
+
+
+
 
 
 
