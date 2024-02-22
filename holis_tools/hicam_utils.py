@@ -6,17 +6,35 @@ Created on Sat Oct 22 10:45:45 2022
 """
 
 '''
-pip install numpy scikit-image matplotlib tifffile
+This module provides tools to read hicam data files and convert the data to compressed zarr arrays 
+
+hicam data is saved as UINT12.  A function converts UINT12>>UINT16 then appropriately rescales the data to
+UINT16 values. 0:4095 >> 0:65534.  Data are stored as UINT16. To recover the original UINT12 values simply divide by 16
+
+Arrays are saved according to hicam format: thus axes x,y,and z are representative of the cameras coordinates.  
+X and Y are lateral axes (each 2D frame capture), Z represents a stack of many frames.
+
+SCAPE data acquisition often requires that these axes are rearranged to represent acquisition axes.  For example a
+mapping of hicam axes to SCAPE acquisition axes would be:
+{
+# hicam:scape #
+'y':'z',
+'x':'y',
+'z':'x'
+}
 '''
 
 import numpy as np
 from ast import literal_eval
 import json
 from pprint import pprint as print
+import os
+from numcodecs import Blosc
+# from numcodecs import blosc
+# blosc.set_nthreads(16)
 from zarr_stores.h5_nested_store import H5_Nested_Store
-
-spool_file = r'H:\globus\pitt\bil\hillman\spool_examples\hicam\2023_04_24_HiCAMTest_sampleDataSet\hicam-scan-ROIb15_HiCAM FLUO_1875-ST-272.fli'
-spool_file = r'/CBI_Hive/globus/pitt/bil/hillman/spool_examples/hicam/2023_04_24_HiCAMTest_sampleDataSet/hicam-scan-ROIb15_HiCAM FLUO_1875-ST-272.fli'
+import zarr
+from skimage import io
 
 header_info = {
     # '{FLIMIMAGE}'
@@ -126,7 +144,7 @@ def read_header(file_name):
     print(header_info)
     return header_info, raw_header_string
 
-def read_uint12(data_chunk, coerce_to_uint16_values=False):
+def read_uint12(data_chunk, coerce_to_uint16_values=True):
     '''
     Since numpy does not understand uint12 data, this function takes a raw bytes object and reads the 12bit integer
     data into a uint16 array.
@@ -134,6 +152,11 @@ def read_uint12(data_chunk, coerce_to_uint16_values=False):
     Input:
         data_chunk: Byte string
         coerce_to_uint16_values (bool): if True outputs an array with values that are scaled to uint16
+
+        In general this should remain True.  Thus, the image is representative of a conversion to UINT16 precision
+        and any conversion to other precision images (ie float for processing) will appropriately represent the
+        original data. *Manual conversion to the original uint12 values can be obtained by division by 16
+
     Output:
          uint16 numpy array where each integer corresponds to the uint12 value (default)
 
@@ -157,13 +180,28 @@ def read_data_file(file_name, header_info=None):
     ## READ HICAM DATA IN ALL AT ONCE then convert to numpy z-stack
     ################################################################
 
-    how_many_frames = header_info['timestamps']
-    output = np.zeros((how_many_frames, header_info['y'], header_info['x']), 'uint16')
-
     pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
+
+    how_many_frames = header_info['timestamps']
+    if how_many_frames is None:
+        with open(spool_file, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size_of_file = f.tell()
+            print(f'{size_of_file=}')
+            header_len = header_info['headerLength']
+            print(f'{header_len=}')
+            data_size = size_of_file - header_len
+            print(f'{data_size=}')
+            num_frames_remainder = data_size%pixelInFrame_bit8
+            print(f'{num_frames_remainder=}')
+            how_many_frames = data_size//pixelInFrame_bit8
+            print(f'{how_many_frames=}')
+    output = np.zeros((how_many_frames, header_info['y'], header_info['x']), 'uint16')
 
 
     with open(spool_file, 'rb') as f:
+        size_of_file = f.tell()
+        print(f'{size_of_file=}')
         print(f'Reading {how_many_frames} frames')
         f.seek(header_info['headerLength'])
         multi_frame = f.read(how_many_frames * pixelInFrame_bit8)
@@ -175,8 +213,8 @@ def read_data_file(file_name, header_info=None):
 
         # Data to uint16 where uint12 values have been scaled to uint16 values
         # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
-        # canvas = read_uint12(data, coerce_to_uint16_values=True)
-        canvas = read_uint12(data, coerce_to_uint16_values=False)
+        canvas = read_uint12(data, coerce_to_uint16_values=True)
+        # canvas = read_uint12(data, coerce_to_uint16_values=False)
 
         output[idx] = canvas.reshape((header_info['y'], header_info['x']))
 
@@ -189,43 +227,315 @@ def header_info_to_json(json_file,header_info):
     with open(json_file, 'w') as f:
         f.write(json.dumps(header_info, indent=4))
 
-def send_hicam_to_zarr(hicam_file,zarr_location,compressor):
+def send_hicam_to_zarr(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1):
 
-import os
-from numcodecs import Blosc
-import zarr
+    compressor = Blosc(
+        cname=compressor_type,
+        clevel=compressor_level,
+        shuffle=shuffle,
+        blocksize=0
+    )
 
-zarr_location = os.path.split(spool_file)[0] + '/out_zarr7' ## TEMP FOR TESTING
+    # zarr_location = os.path.split(spool_file)[0] + '/out_zarr7' ## TEMP FOR TESTING
 
-# Get Store
-store = H5_Nested_Store(zarr_location)
+    # Get Store
+    store = H5_Nested_Store(zarr_location)
 
-# Dump header information to root of zarr store
-hicam_file = spool_file
-header_dict, raw_string = read_header(hicam_file)
-header_json = json.dumps(header_dict, indent=4)
-store['header.json'] = header_json.encode()
-store['header_raw.txt'] = raw_string.encode()
+    # Dump header information to root of zarr store
+    header_dict, raw_string = read_header(hicam_file)
+    header_json = json.dumps(header_dict, indent=4)
+    store['header.json'] = header_json.encode()
+    store['header_raw.txt'] = raw_string.encode()
 
-image_data = read_data_file(hicam_file, header_info=None)
+    image_data = read_data_file(hicam_file, header_info=None)
 
-compressor = Blosc(
-    cname='zstd',
-    clevel=5,
-    shuffle=1,
-    blocksize=0
-)
+    # Define chunks: Groups of 128 frames, then each color channel is divided into 4 chunks (2x2)
+    chunks = (128,image_data.shape[1]//4, image_data.shape[2]//4)
 
-# chunks = (1,1,500,*image_data.shape[1:])
-chunks = (500,*image_data.shape[1:])
-chunks = (128,image_data.shape[1]//4, image_data.shape[2]//4)
-
-# array = zarr.zeros(store=store, shape=(1,1,*image_data.shape), chunks=chunks, compressor=compressor, dtype=image_data.dtype)
-array = zarr.zeros(store=store, shape=image_data.shape, chunks=chunks, compressor=compressor, dtype=image_data.dtype)
-# array[0,0] = image_data
-array[:] = image_data
+    # array = zarr.zeros(store=store, shape=(1,1,*image_data.shape), chunks=chunks, compressor=compressor, dtype=image_data.dtype)
+    array = zarr.zeros(store=store, shape=image_data.shape, chunks=chunks, compressor=compressor, dtype=image_data.dtype)
+    # array[0,0] = image_data
+    array[:] = image_data
 
 
+def get_hicam_zarr(zarr_location):
+    store = H5_Nested_Store(zarr_location, 'r')
+    array = zarr.open(store,'r')
+    print(array)
+    return array
+
+class open_hicam_array_as_aligned_color_dataset:
+
+    '''
+    Present the hicam data (z,y,x) as a multicolor 3D array.  The class handles all the trimming and alignment of
+    channels in (y,x)
+
+    Input
+    -----> X (hicam axis)
+    --------------------- '
+    '    c0   '    c1   ' '
+    '         '         ' V
+    ---------------------
+    '    c2   '    c3   ' Y (hicam axis)
+    '         '         '
+    ---------------------
+
+    Output
+    -----------
+    ' c0,1,2,3'
+    '         '
+    -----------
+
+    '''
+
+    def __init__(self,zarr_location):
+
+        self.store = H5_Nested_Store(zarr_location, 'r')
+        self.array = zarr.open(self.store, 'r')
+
+        # Output array details
+        self.shape = (4,self.array.shape[0],self.array.shape[1]//2,self.array.shape[2]//2)
+        self.dtype = self.array.dtype
+        self.size = self.array.size
+        self.ndims = 4
+        self.chunks = (4,self.array[0],self.shape[2],self.shape[3])
+
+    def __getitem__(self, item):
+        print(f'In slice: {item}')
+
+        if isinstance(item, int):
+            item = (slice(item,item+1), slice(0, self.shape[1]), slice(0, self.shape[2]), slice(0,self.shape[3]))
+
+        elif isinstance(item, slice):
+            item = (item, slice(0, self.shape[1]), slice(0, self.shape[2]), slice(0,self.shape[3]))
+
+        elif isinstance(item, tuple):
+
+            tmp_slice = []
+
+            for idx,ii in enumerate(item):
+                if isinstance(ii, int):
+                    tmp_slice.append(slice(ii, ii+1))
+                elif isinstance(ii,slice):
+                    tmp_slice.append(ii)
+
+            idx += 1
+            while idx < self.ndims:
+                tmp_slice.append(slice(0, self.shape[idx]))
+                idx += 1
+                # print(idx)
+
+            item = tmp_slice
+
+        # print(f'Out slice: {item}')
+        ## ITEM is now the corrected slice for the virtual array
+
+
+        ## Actually get data from hicam file and shape into the new array shape
+        canvas = np.zeros(
+            shape=(
+            item[0].stop - item[0].start,
+            item[1].stop - item[1].start,
+            item[2].stop - item[2].start,
+            item[3].stop - item[3].start
+        ),
+            dtype=self.array.dtype
+        )
+        # print(canvas.shape)
+
+        for clr_idx in range(canvas.shape[0]):
+            clr = clr_idx + item[0].start
+            # print(f'CLR index = {clr}')
+            if clr == 0:
+                color_slice = (
+                    slice(0,self.shape[2]),
+                    slice(0,self.shape[3])
+                )
+            if clr == 1:
+                color_slice = (
+                    slice(0, self.shape[2]),
+                    slice(self.shape[3], self.shape[3]*2)
+                )
+            if clr == 2:
+                color_slice = (
+                    slice(self.shape[2], self.shape[2]*2),
+                    slice(0, self.shape[3])
+                )
+            if clr == 3:
+                color_slice = (
+                    slice(self.shape[2], self.shape[2]*2),
+                    slice(self.shape[3], self.shape[3]*2)
+                )
+
+            out = self.array[item[1],color_slice[0],color_slice[1]]
+            # print(out.shape)
+            # print(out)
+            out = out[:,item[-2],item[-1]]
+            # print(out.shape)
+            canvas[clr_idx] = out
+            # print(canvas.shape)
+
+        return canvas.squeeze()
+
+
+
+####  Image alignments methods
+# pip install numpy scikit-image matplotlib SimpleITK
+
+import SimpleITK as sitk
+from skimage import io, img_as_float32, img_as_float, img_as_uint
+import numpy as np
+import time
+def command_iteration(method):
+    print(
+        f"{method.GetOptimizerIteration():3} "
+        + f"= {method.GetMetricValue():10.5f} "
+        + f": {method.GetOptimizerPosition()}"
+    )
+
+
+def sitk_align_translation(fixed, moving, output_offsets=False):
+    '''
+    Input:
+        fixed: numpy array (same shape as moving)
+        moving: numpy array (same shape as fixed)
+
+    Output:
+        If output_offsets == False (default), an aligned image is returned
+        If output_offsets == True, a tuple of pixel offsets is returned
+
+        Images are returned in the same dtype as input
+    '''
+
+    dtype = moving.dtype
+    # Convert numpy arrays to sitk images
+    if fixed.dtype != float:
+        fixed = img_as_float32(fixed)
+    if moving.dtype != float:
+        moving = img_as_float32(moving)
+    fixed = sitk.GetImageFromArray(fixed)
+    moving = sitk.GetImageFromArray(moving)
+    fixed.SetOrigin((0, 0))
+    moving.SetOrigin((0, 0))
+
+    # Calculate alignment
+    R = sitk.ImageRegistrationMethod()
+    R.SetMetricAsMattesMutualInformation()
+    # R.SetMetricAsMattesMutualInformation(50)
+    # R.SetMetricAsJointHistogramMutualInformation()
+    # R.SetMetricAsANTSNeighborhoodCorrelation(2)
+    # R.SetMetricAsMeanSquares()
+    # R.SetMetricAsCorrelation()
+    R.SetOptimizerAsRegularStepGradientDescent(1.0, 0.01, 200)
+    R.SetInitialTransform(sitk.TranslationTransform(fixed.GetDimension()))
+    # R.SetInterpolator(sitk.sitkNearestNeighbor)
+    R.SetInterpolator(sitk.sitkLinear)
+
+    # Pyramidal registration
+    R.SetShrinkFactorsPerLevel([6, 2, 1])
+    R.SetSmoothingSigmasPerLevel([6, 2, 1])
+
+    # R.AddCommand(sitk.sitkIterationEvent, lambda: command_iteration(R))
+
+    outTx = R.Execute(fixed, moving)
+    # return outTx
+    if output_offsets:
+        # Return revered tuple of pixel offsets (sitk and numpy axes are reversed)
+        # Returned axes are in order (y,x)
+        offsets = outTx.GetParameters()[::-1]
+        # print(offsets)
+        return offsets
+
+    # Produce aligned image
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetReferenceImage(fixed)
+    # resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    R.SetInterpolator(sitk.sitkLinear)
+    resampler.SetDefaultPixelValue(0)
+    resampler.SetTransform(outTx)
+    out = resampler.Execute(moving)
+
+    # Return numpy array of aligned image
+    out = sitk.GetArrayFromImage(out)
+    if dtype == out.dtype:
+        return out
+    if dtype == np.dtype('uint16'):
+        return img_as_uint(out)
+    if dtype == np.dtype('float32'):
+        return img_as_float32(out)
+    if dtype == float:
+        return img_as_float(out)
+
+
+def calculate_channels_shift(multi_channel_z_stack, reference_channel=None):
+    from skimage.registration import phase_cross_correlation
+
+    if reference_channel is None:
+        reference_channel = 0
+
+    shift_dict = {
+        0:[],
+        1: [],
+        2: [],
+        3: []
+    }
+    for ch_idx in range(multi_channel_z_stack.shape[0]):
+
+        ref_array = multi_channel_z_stack[reference_channel]
+        reference = ref_array[0]
+        if ch_idx != reference_channel:
+
+            moving_array = multi_channel_z_stack[ch_idx]
+            moving = moving_array[0]
+            for z_idx in range(moving_array.shape[0]):
+                # print(z_idx)
+                if z_idx%10 == 0:
+                    # print(f'Getting Reference and Moving images')
+                    reference[:] = ref_array[z_idx]
+                    moving[:] = moving_array[z_idx]
+                    # print(f'Aligning Image {z_idx} of {multi_channel_z_stack.shape[1]}')
+                    # shift, error, phasediff = phase_cross_correlation(reference,moving)
+                    # print(f'Shift = {shift}, error = {error}, phasediff = {phasediff}')
+                    shift = sitk_align_translation(reference, moving, output_offsets=True)
+                    print(f'{z_idx} of {moving_array.shape[0]}; Shift = {shift}')
+                    shift_dict[ch_idx].append(shift)
+
+    return shift_dict
+
+
+def calculate_channel_shifts(zarr_spool_location, anchor_channel):
+
+    a = open_hicam_array_as_aligned_color_dataset(zarr_spool_location)
+
+    shift_dict = calculate_channels_shift(a, reference_channel=anchor_channel)
+
+
+    shift_medians = {
+            0:None,
+            1:None,
+            2:None,
+            3:None
+        }
+
+    for key in shift_dict:
+        x = np.median(
+            np.array(
+            [x[0] for x in shift_dict[key]]
+        )
+        )
+        x = 0 if x is np.nan else x
+        y = np.median(
+            np.array(
+            [x[1] for x in shift_dict[key]]
+        )
+        )
+        y = 0 if y is np.nan else y
+
+        try:
+            shift_medians[key] = (round(y),round(x))
+        except Exception:
+            shift_medians[key] = (0, 0)
+    return shift_medians
 
 
 
