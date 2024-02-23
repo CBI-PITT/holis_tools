@@ -561,6 +561,7 @@ def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='z
 
     import dask
     from dask import delayed
+
     compressor = Blosc(
         cname=compressor_type,
         clevel=compressor_level,
@@ -607,7 +608,13 @@ def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='z
             to_process.append(tmp)
             del tmp
 
-    out = dask.compute(to_process)
+    # out = dask.compute(to_process)
+
+    from dask.distributed import Client
+    with Client() as client:
+        print('Computing')
+        out = client.compute(to_process)
+
 
 
 
