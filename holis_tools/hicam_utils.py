@@ -526,6 +526,132 @@ def send_hicam_to_zarr_par(hicam_file,zarr_location,compressor_type='zstd', comp
     dask.compute(to_process)
 
 
+
+
+####################################################################################
+'''Read all data in first then write to zarr in parallel'''
+####################################################################################
+
+def write_part_bytes(zarr_location, bytes_from_file, writedict):
+    array = get_hicam_zarr(zarr_location, mode='a')
+
+    print(f'Forming Array')
+    chunk_shape = (
+        writedict['frames'],
+        array.shape[1],
+        array.shape[2]
+    )
+    output = np.zeros(chunk_shape, 'uint16')
+    for idx in range(writedict['frames']):
+        where_to_start = idx * writedict['pixelInFrame_bit8']
+        data = bytes_from_file[where_to_start:where_to_start + writedict['pixelInFrame_bit8']]
+
+        # Data to uint16 where uint12 values have been scaled to uint16 values
+        # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
+        canvas = read_uint12(data, coerce_to_uint16_values=True)
+        # canvas = read_uint12(data, coerce_to_uint16_values=False)
+
+        output[idx] = canvas.reshape((header_info['y'], header_info['x']))
+
+    start = writedict['group'] * writedict['frames_at_once']
+    stop = start + writedict['frames']
+    array[start:stop] = output
+    del array
+def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, frames_at_once=1024):
+
+    import dask
+    from dask import delayed
+    compressor = Blosc(
+        cname=compressor_type,
+        clevel=compressor_level,
+        shuffle=shuffle,
+        blocksize=0
+    )
+
+    # zarr_location = os.path.split(spool_file)[0] + '/out_zarr7' ## TEMP FOR TESTING
+
+    # Get Store
+    store = H5_Nested_Store(zarr_location)
+
+    # Dump header information to root of zarr store
+    header_dict, raw_string = read_header(hicam_file)
+    header_json = json.dumps(header_dict, indent=4)
+    store['header.json'] = header_json.encode()
+    store['header_raw.txt'] = raw_string.encode()
+
+    num_frames = get_number_of_frames(hicam_file, header_info=header_dict)
+    frame_shape = get_frame_shape(hicam_file, header_info=header_dict)
+
+    array_shape = (num_frames, frame_shape[0], frame_shape[1])
+    chunks = (chunk_depth, array_shape[1] // 2,
+              array_shape[2] // 2)  # Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
+
+    array = zarr.zeros(store=store, shape=array_shape, chunks=chunks, compressor=compressor,
+                       dtype='uint16')
+
+    # header_info, _ = read_header(file_name)
+    # header_len = header_info['headerLength']
+
+    print('Reading hicam file into memory')
+
+    with open(hicam_file, 'rb') as f:
+
+        to_process = []
+        for location in get_start_stop_reads_for_frame_groups(hicam_file, header_info=None, frames_at_once=frames_at_once):
+
+            f.seek(location['start'])
+            frames = f.read(location['len'])
+
+            #queue to write to zarr
+            tmp = delayed(write_part_bytes)(zarr_location, frames, location)
+            to_process.append(tmp)
+            del tmp
+
+    out = dask.compute(to_process)
+
+
+
+
+
+
+
+
+
+
+# {'start':start,
+#                'stop':stop,
+#                'group':idx,
+#                'len':length,
+#                'file':file_name,
+#                'frames':length//pixelInFrame_bit8,
+#                'pixelInFrame_bit8':pixelInFrame_bit8,
+#                'last':remaining==0,
+#                'frames_at_once':frames_at_once}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def get_hicam_zarr(zarr_location, mode='r'):
     store = H5_Nested_Store(zarr_location, 'r')
     array = zarr.open(store,mode)
