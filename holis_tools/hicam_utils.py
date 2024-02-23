@@ -196,8 +196,12 @@ def read_data_file(file_name, header_info=None):
             print(f'{num_frames_remainder=}')
             how_many_frames = data_size//pixelInFrame_bit8
             print(f'{how_many_frames=}')
-    output = np.zeros((how_many_frames, header_info['y'], header_info['x']), 'uint16')
 
+    chunk_shape = (how_many_frames, header_info['y'], header_info['x'])
+
+    output = np.zeros(chunk_shape, 'uint16')
+
+    #make tuple of slices to extract
 
     with open(spool_file, 'rb') as f:
         size_of_file = f.tell()
@@ -220,6 +224,88 @@ def read_data_file(file_name, header_info=None):
 
     return output
 
+def get_header_size(file_name, header_info=None):
+
+    if header_info is None:
+        header_info, _ = read_header(file_name)
+
+    return header_info['headerLength']
+
+def get_frame_shape(file_name, header_info=None):
+
+    if header_info is None:
+        header_info, _ = read_header(file_name)
+
+    return (header_info['y'], header_info['x'])
+
+
+def get_number_of_frames(file_name, header_info=None):
+
+    if header_info is None:
+        header_info, _ = read_header(file_name)
+
+    pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
+
+    how_many_frames = header_info['timestamps']
+    if how_many_frames is None:
+        with open(spool_file, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size_of_file = f.tell()
+            header_len = header_info['headerLength']
+            data_size = size_of_file - header_len
+            num_frames_remainder = data_size % pixelInFrame_bit8
+            assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
+            how_many_frames = data_size // pixelInFrame_bit8
+
+    return how_many_frames
+
+def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
+
+    if header_info is None:
+        header_info, _ = read_header(file_name)
+
+    ################################################################
+    ## READ HICAM DATA IN ALL AT ONCE then convert to numpy z-stack
+    ################################################################
+
+    pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
+
+    chunk_shape = (frames_at_once, header_info['y'], header_info['x'])
+
+    output = np.zeros(chunk_shape, 'uint16')
+
+    start_index = get_header_size(file_name, header_info=header_info)
+    read_len = frames_at_once * pixelInFrame_bit8
+
+    with open(spool_file, 'rb') as f:
+        f.seek(start_index)
+
+        while True:
+            multi_frame = f.read(read_len)
+
+            if len(multi_frame) == 0:
+                '''When no more data remains exit the while loop'''
+                break
+
+            current_num_frames = len(multi_frame) // pixelInFrame_bit8
+            print(f'{current_num_frames=}')
+
+            print(f'Forming Array')
+            for idx in range(current_num_frames):
+                where_to_start = idx * pixelInFrame_bit8
+                data = multi_frame[where_to_start:where_to_start + pixelInFrame_bit8]
+                print(f'{current_num_frames=}, {where_to_start=}, {idx=}, Data length = {len(data)}')
+
+                # Data to uint16 where uint12 values have been scaled to uint16 values
+                # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
+                canvas = read_uint12(data, coerce_to_uint16_values=True)
+                print(f'{canvas.shape}')
+                # canvas = read_uint12(data, coerce_to_uint16_values=False)
+
+                output[idx] = canvas.reshape((header_info['y'], header_info['x']))
+
+            yield output[:current_num_frames]
+
 '''
 Code below is designed to package a hicam spool file as a zarr
 '''
@@ -227,7 +313,8 @@ def header_info_to_json(json_file,header_info):
     with open(json_file, 'w') as f:
         f.write(json.dumps(header_info, indent=4))
 
-def send_hicam_to_zarr(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1):
+
+def send_hicam_to_zarr(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, frames_at_once=1024):
 
     compressor = Blosc(
         cname=compressor_type,
@@ -247,16 +334,24 @@ def send_hicam_to_zarr(hicam_file,zarr_location,compressor_type='zstd', compress
     store['header.json'] = header_json.encode()
     store['header_raw.txt'] = raw_string.encode()
 
-    image_data = read_data_file(hicam_file, header_info=None)
+    num_frames = get_number_of_frames(hicam_file, header_info=header_dict)
+    frame_shape = get_frame_shape(hicam_file, header_info=header_dict)
 
-    # Define chunks: Groups of 128 frames, then each color channel is divided into 4 chunks (2x2)
-    chunks = (128,image_data.shape[1]//4, image_data.shape[2]//4)
+    array_shape = (num_frames, frame_shape[0], frame_shape[1])
+    chunks = (chunk_depth, array_shape[1] // 2, array_shape[2] // 2) #Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
 
-    # array = zarr.zeros(store=store, shape=(1,1,*image_data.shape), chunks=chunks, compressor=compressor, dtype=image_data.dtype)
-    array = zarr.zeros(store=store, shape=image_data.shape, chunks=chunks, compressor=compressor, dtype=image_data.dtype)
-    # array[0,0] = image_data
-    array[:] = image_data
+    array = zarr.zeros(store=store, shape=array_shape, chunks=chunks, compressor=compressor,
+                       dtype='uint16')
 
+    # image_data = read_data_file(hicam_file, header_info=None)
+    # image_data = read_part_data_file(hicam_file, header_info=None)
+    for idx, ii in enumerate(read_part_data_file(hicam_file, header_info=None, frames_at_once=frames_at_once)):
+        start = idx*frames_at_once
+        stop = start+ii.shape[0]
+        print(ii.shape)
+
+        print('Writing to ZARR')
+        array[start:stop] = ii
 
 def get_hicam_zarr(zarr_location):
     store = H5_Nested_Store(zarr_location, 'r')
@@ -538,68 +633,4 @@ def calculate_channel_shifts(zarr_spool_location, anchor_channel):
     return shift_medians
 
 
-
-
-# #######################################################################
-# ## READ HICAM DATA 1 FRAME AT A TIME: adding each frame to numpy z-stack
-# #######################################################################
-#
-# # Read 12bit data (numpy does not support this, so the following code deals with this by first interpreting 8bit)
-# pixelInFrame_bit8 = int(header_info['x'] * header_info['y']/2 * 3) # Number of bits in frame
-#
-# scape_data = np.zeros((header_info['timestamps'], header_info['y'], header_info['x']), 'uint16')
-# with open(spool_file, 'rb') as f:
-#     for idx in range(header_info['timestamps']):
-#         print(f'Reading {idx}')
-#         where_to_start = header_info['headerLength'] + (idx * pixelInFrame_bit8)
-#         f.seek(where_to_start)
-#         data = f.read(pixelInFrame_bit8)
-#
-#         # Data to uint16 where uint12 values have been scaled to uint16 values
-#         # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
-#         canvas = read_uint12(data,coerce_to_uint16_values=True)
-#
-#         scape_data[idx] = canvas.reshape((header_info['y'], header_info['x']))
-
-
-
-# ################################################################
-# ## READ HICAM DATA IN BATCHES OF FRAMES: how_many_frames_at_once
-# ################################################################
-#
-# scape_data = np.zeros((header_info['timestamps'], header_info['y'], header_info['x']), 'uint16')
-# # Define the batch size for frames to be read off disk at once
-# how_many_frames_at_once = 500
-#
-# import math
-# how_many_groups_to_load = math.ceil(header_info['timestamps']/how_many_frames_at_once)
-#
-# for group in range(how_many_groups_to_load):
-#
-#     with open(spool_file, 'rb') as f:
-#         print(f'Reading {group+1} of {how_many_groups_to_load}')
-#         where_to_start = header_info['headerLength'] + (group * how_many_frames_at_once * pixelInFrame_bit8)
-#         # if group > 0:
-#         #     where_to_start += pixelInFrame_bit8
-#         f.seek(where_to_start)
-#         if group+1 == how_many_groups_to_load:
-#             multi_frame = f.read()
-#         else:
-#             multi_frame = f.read(how_many_frames_at_once * pixelInFrame_bit8)
-#
-#     for local_idx in range(how_many_frames_at_once):
-#         idx = local_idx + (group * how_many_frames_at_once)
-#         print(f'Processing {idx}')
-#         start = local_idx * pixelInFrame_bit8
-#         stop = start+pixelInFrame_bit8
-#         data = multi_frame[start:stop]
-#
-#         # Data to uint16 where uint12 values have been scaled to uint16 values
-#         # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
-#         canvas = read_uint12(data,coerce_to_uint16_values=True)
-#
-#         scape_data[idx] = canvas.reshape((header_info['y'], header_info['x']))
-#
-#         if idx+1 == scape_data.shape[0]:
-#             break
 
