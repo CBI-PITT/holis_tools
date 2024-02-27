@@ -248,7 +248,7 @@ def get_number_of_frames(file_name, header_info=None):
 
     how_many_frames = header_info['timestamps']
     if how_many_frames is None:
-        with open(spool_file, 'rb') as f:
+        with open(file_name, 'rb') as f:
             f.seek(0, os.SEEK_END)
             size_of_file = f.tell()
             header_len = header_info['headerLength']
@@ -939,4 +939,29 @@ def calculate_channel_shifts(zarr_spool_location, anchor_channel):
     return shift_medians
 
 
+
+# import os, time
+#
+# base = '/bil/proj/rf1hillman/2024_01_30_dualHiCAM_sampleDataForCompression'
+#
+# spool_files = (
+#     'longRun3-y1-z0_HiCAM FLUO_1875-ST-088.fli',
+#     'longRun4-y1-z1_HiCAM FLUO_1875-ST-088.fli',
+#     'longRun3-y1-z0_HiCAM FLUO_1875-ST-272.fli',
+#     'longRun4-y1-z1_HiCAM FLUO_1875-ST-272.fli'
+# )
+#
+# spool_files = [os.path.join(base,x) for x in spool_files]
+#
+# zarr_locations = [os.path.join(r'/bil/users/awatson/holis',os.path.split(x)[-1] + '_ZARR_OUT') for x in spool_files]
+#
+# def run():
+#     start = time.time()
+#     for spool_file, zarr_location in zip(spool_files, zarr_locations):
+#         send_hicam_to_zarr_par_read_once(spool_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, frames_at_once=128)
+#     stop = time.time()
+#     print(f'Total time = {stop}')
+#
+# if __name__ == "__main__":
+#     run()
 
