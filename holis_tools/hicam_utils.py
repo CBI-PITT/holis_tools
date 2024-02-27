@@ -416,7 +416,7 @@ def get_start_stop_reads_for_frame_groups(file_name, header_info=None, frames_at
 
     how_many_frames = header_info['timestamps']
     if how_many_frames is None:
-        with open(spool_file, 'rb') as f:
+        with open(file_name, 'rb') as f:
             f.seek(0, os.SEEK_END)
             size_of_file = f.tell()
             header_len = header_info['headerLength']
