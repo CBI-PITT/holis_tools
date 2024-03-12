@@ -557,6 +557,40 @@ def write_part_bytes(zarr_location, bytes_from_file, writedict):
     stop = start + writedict['frames']
     array[start:stop] = output
     del array
+
+
+# tmp = delayed(write_part_bytes_all)(zarr_location, frames, location, hicam_file, location['start'], location['len'])
+def write_part_bytes_all(zarr_location, writedict, file, start, stop):
+
+    with open(file, 'rb') as f:
+        f.seek(start)
+        bytes_from_file = f.read(stop)
+
+    array = get_hicam_zarr(zarr_location, mode='a')
+
+    print(f'Forming Array')
+    chunk_shape = (
+        writedict['frames'],
+        array.shape[1],
+        array.shape[2]
+    )
+    output = np.zeros(chunk_shape, 'uint16')
+    for idx in range(writedict['frames']):
+        where_to_start = idx * writedict['pixelInFrame_bit8']
+        data = bytes_from_file[where_to_start:where_to_start + writedict['pixelInFrame_bit8']]
+
+        # Data to uint16 where uint12 values have been scaled to uint16 values
+        # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
+        canvas = read_uint12(data, coerce_to_uint16_values=True)
+        # canvas = read_uint12(data, coerce_to_uint16_values=False)
+
+        output[idx] = canvas.reshape((header_info['y'], header_info['x']))
+
+    start = writedict['group'] * writedict['frames_at_once']
+    stop = start + writedict['frames']
+    array[start:stop] = output
+    del array
+
 def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, chunk_lat=128, frames_at_once=1024):
 
     import dask
@@ -746,10 +780,10 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
     on_group = 0
     for location in get_start_stop_reads_for_frame_groups(hicam_file, header_info=None, frames_at_once=frames_at_once):
 
-        frames = delayed(read_part)(hicam_file, location['start'], location['len'])
+        # frames = delayed(read_part)(hicam_file, location['start'], location['len'])
 
         #queue to write to zarr
-        tmp = delayed(write_part_bytes)(zarr_location, frames, location)
+        tmp = delayed(write_part_bytes_all)(zarr_location, location,hicam_file, location['start'], location['len'])
         to_process.append(tmp)
         del tmp
 
