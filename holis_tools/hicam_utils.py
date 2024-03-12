@@ -697,6 +697,78 @@ def send_hicam_to_zarr_par_read_groups(hicam_file,zarr_location,compressor_type=
 
 
 
+def read_part(file, start, len):
+    with open(file, 'rb') as f:
+        f.seek(start)
+        return f.read(len)
+
+def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, chunk_lat=128, frames_at_once=1024, groups=100):
+
+    import dask
+    from dask import delayed
+
+    compressor = Blosc(
+        cname=compressor_type,
+        clevel=compressor_level,
+        shuffle=shuffle,
+        blocksize=0
+    )
+
+    # zarr_location = os.path.split(spool_file)[0] + '/out_zarr7' ## TEMP FOR TESTING
+
+    # Get Store
+    store = H5_Nested_Store(zarr_location)
+
+    # Dump header information to root of zarr store
+    header_dict, raw_string = read_header(hicam_file)
+    header_json = json.dumps(header_dict, indent=4)
+    store['header.json'] = header_json.encode()
+    store['header_raw.txt'] = raw_string.encode()
+
+    num_frames = get_number_of_frames(hicam_file, header_info=header_dict)
+    frame_shape = get_frame_shape(hicam_file, header_info=header_dict)
+
+    array_shape = (num_frames, frame_shape[0], frame_shape[1])
+    # chunks = (chunk_depth, array_shape[1] // 2,
+    #           array_shape[2] // 2)  # Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
+    chunks = (chunk_depth, chunk_lat,
+              chunk_lat)  # Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
+
+    array = zarr.zeros(store=store, shape=array_shape, chunks=chunks, compressor=compressor,
+                       dtype='uint16')
+
+    # header_info, _ = read_header(file_name)
+    # header_len = header_info['headerLength']
+
+    print('Reading hicam file into memory')
+
+    to_process = []
+    on_group = 0
+    for location in get_start_stop_reads_for_frame_groups(hicam_file, header_info=None, frames_at_once=frames_at_once):
+
+        frames = delayed(read_part)(hicam_file, location['start'], location['len'])
+
+        #queue to write to zarr
+        tmp = delayed(write_part_bytes)(zarr_location, frames, location)
+        to_process.append(tmp)
+        del tmp
+
+        on_group += 1
+        if on_group == groups:
+            print('Computing Group')
+            out = dask.compute(to_process)
+            on_group = 0
+            del to_process
+            to_process = []
+            print('Reading next Group')
+
+    if len(to_process) > 0:
+        print('Computing Final Group')
+        out = dask.compute(to_process)
+        to_process = []
+    print('Computing Completed')
+
+
 
 
 
