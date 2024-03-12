@@ -740,6 +740,8 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
 
     import dask
     from dask import delayed
+    from distributed import Client
+    dask = Client()
 
     compressor = Blosc(
         cname=compressor_type,
