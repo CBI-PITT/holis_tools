@@ -803,7 +803,8 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
         # out = dask.compute(to_process)
         # with Client() as client:
         #     out = client.compute(to_process, sync=True)
-        out = client.compute(to_process, sync=True)
+        # out = client.compute(to_process, sync=True)
+        out = client.compute(to_process)
         to_process = []
     print('Computing Completed')
     return out
