@@ -741,7 +741,6 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
     import dask
     from dask import delayed
     from distributed import Client
-    client = Client()
 
     compressor = Blosc(
         cname=compressor_type,
@@ -800,9 +799,9 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
 
     if len(to_process) > 0:
         print('Computing Final Group')
-        out = dask.compute(to_process)
-        out = client.compute(to_process)
-        out = out.gather()
+        # out = dask.compute(to_process)
+        with Client() as client:
+            out = client.compute(to_process, sync=True)
         to_process = []
     print('Computing Completed')
 
