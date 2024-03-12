@@ -753,14 +753,14 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
         to_process.append(tmp)
         del tmp
 
-        on_group += 1
-        if on_group == groups:
-            print('Computing Group')
-            out = dask.compute(to_process)
-            on_group = 0
-            del to_process
-            to_process = []
-            print('Reading next Group')
+        # on_group += 1
+        # if on_group == groups:
+        #     print('Computing Group')
+        #     out = dask.compute(to_process)
+        #     on_group = 0
+        #     del to_process
+        #     to_process = []
+        #     print('Reading next Group')
 
     if len(to_process) > 0:
         print('Computing Final Group')
