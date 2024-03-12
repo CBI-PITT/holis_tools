@@ -806,6 +806,7 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
         out = client.compute(to_process, sync=True)
         to_process = []
     print('Computing Completed')
+    return out
 
 
 
