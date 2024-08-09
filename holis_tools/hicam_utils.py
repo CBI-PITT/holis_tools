@@ -527,6 +527,18 @@ def send_hicam_to_zarr_par(hicam_file,zarr_location,compressor_type='zstd', comp
     # Dump header information to root of zarr store
     header_dict, raw_string = read_header(hicam_file)
     header_json = json.dumps(header_dict, indent=4)
+    store['README.txt'] = f'''
+    This zarr array was created using holis_tools which turns 12bit hicam camera files into zarr arrays
+    In addition to zarr, two plain text files should be found in this folder called: header.json and header_raw.txt
+    
+    Origional File: {hicam_file}
+    
+    Function used to create this zarr array: holis_tools.hicam_utils.send_hicam_to_zarr_par
+    Specific command: send_hicam_to_zarr_par({hicam_file=},{zarr_location=},{compressor_type=},{compressor_level=},{shuffle=}, {chunk_depth=}, {frames_at_once=}, {cube_chunk=})
+    
+    header.json: A json representation of data extracted from the hicam file header collected by function holis_tools.hicam_utils.read_header
+    header_raw.txt: The RAW header information from the hicam file dumped here.
+    '''.encode()
     store['header.json'] = header_json.encode()
     store['header_raw.txt'] = raw_string.encode()
 
@@ -539,8 +551,8 @@ def send_hicam_to_zarr_par(hicam_file,zarr_location,compressor_type='zstd', comp
     if cube_chunk:
         chunks = (cube_chunk, cube_chunk, cube_chunk)
     else:
-        chunks = (chunk_depth, array_shape[1] // 8,
-                  array_shape[2] // 8)  # Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
+        chunks = (chunk_depth, array_shape[1] // 4,
+                  array_shape[2] // 4)  # Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
 
     array = zarr.zeros(store=store, shape=array_shape, chunks=chunks, compressor=compressor,
                        dtype='uint16')
