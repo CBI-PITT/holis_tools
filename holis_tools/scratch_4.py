@@ -5,9 +5,10 @@ from holis_tools.hicam_utils import read_header
 import holis_tools
 import os
 read_header(file)
-out_location = os.path.split(file)[0] + '/test_out3' ## TEMP FOR TESTING
-holis_tools.hicam_utils.send_hicam_to_zarr_par(file,out_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=512, frames_at_once=1024, cube_chunk=None)
-
+out_location = os.path.split(file)[0] + '/test_out5' ## TEMP FOR TESTING
+#holis_tools.hicam_utils.send_hicam_to_zarr_par(file,out_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=512, frames_at_once=1024, cube_chunk=None)
+#holis_tools.hicam_utils.send_hicam_to_zarr_par_read_groups(file,out_location)
+holis_tools.hicam_utils.send_hicam_to_zarr_par_read_groups_par(file,out_location)
 import os
 from skimage import io
 import matplotlib
