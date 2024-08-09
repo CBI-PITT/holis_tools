@@ -11,7 +11,7 @@ git clone https://github.com/CBI-PITT/holis_tools.git
 
 # Create a virtual environment
 # This assumes that you have miniconda or anaconda installed
-conda create -n holis_tools python=3.8 -y
+conda create -n holis_tools python=3.12 -y
 
 # Activate environment and install zarr_stores
 conda activate holis_tools

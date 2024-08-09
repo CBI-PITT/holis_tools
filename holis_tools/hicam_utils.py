@@ -144,6 +144,32 @@ def read_header(file_name):
     print(header_info)
     return header_info, raw_header_string
 
+
+def read_uint12_a(data_chunk):
+    data = np.frombuffer(data_chunk, dtype=np.uint8)
+    fst_uint8, mid_uint8, lst_uint8 = np.reshape(data, (data.shape[0] // 3, 3)).astype(np.uint16).T
+    fst_uint12 = (fst_uint8 << 4) + (mid_uint8 >> 4)
+    snd_uint12 = ((mid_uint8 % 16) << 8) + lst_uint8
+    array = np.reshape(np.concatenate((fst_uint12[:, None], snd_uint12[:, None]), axis=1), 2 * fst_uint12.shape[0])
+    return array
+
+def read_uint12_b(data_chunk):
+    data = np.frombuffer(data_chunk, dtype=np.uint8)
+    fst_uint8, mid_uint8, lst_uint8 = np.reshape(data, (data.shape[0] // 3, 3)).astype(np.uint16).T
+    fst_uint12 = (fst_uint8 << 4) + (mid_uint8 >> 4)
+    snd_uint12 = (lst_uint8 << 4) + (np.bitwise_and(15, mid_uint8))
+    array = np.reshape(np.concatenate((fst_uint12[:, None], snd_uint12[:, None]), axis=1), 2 * fst_uint12.shape[0])
+    return array
+
+### THIS ONE WORKS FOR HICAM ###
+def read_uint12_c(data_chunk):
+    data = np.frombuffer(data_chunk, dtype=np.uint8)
+    fst_uint8, mid_uint8, lst_uint8 = np.reshape(data, (data.shape[0] // 3, 3)).astype(np.uint16).T
+    fst_uint12 = ((mid_uint8 & 0x0F) << 8) | fst_uint8
+    snd_uint12 = (lst_uint8 << 4) | ((mid_uint8 & 0xF0) >> 4)
+    array = np.reshape(np.concatenate((fst_uint12[:, None], snd_uint12[:, None]), axis=1), 2 * fst_uint12.shape[0])
+    return array
+
 def read_uint12(data_chunk, coerce_to_uint16_values=True):
     '''
     Since numpy does not understand uint12 data, this function takes a raw bytes object and reads the 12bit integer
@@ -161,20 +187,17 @@ def read_uint12(data_chunk, coerce_to_uint16_values=True):
          uint16 numpy array where each integer corresponds to the uint12 value (default)
 
     '''
-    data = np.frombuffer(data_chunk, dtype=np.uint8)
-    fst_uint8, mid_uint8, lst_uint8 = np.reshape(data, (data.shape[0] // 3, 3)).astype(np.uint16).T
-    fst_uint12 = (fst_uint8 << 4) + (mid_uint8 >> 4)
-    snd_uint12 = ((mid_uint8 % 16) << 8) + lst_uint8
-    array = np.reshape(np.concatenate((fst_uint12[:, None], snd_uint12[:, None]), axis=1), 2 * fst_uint12.shape[0])
+
+    array = read_uint12_c(data_chunk)
     if coerce_to_uint16_values:
         array *= 16
     return array
 
 
-def read_data_file(file_name, header_info=None):
+def read_data_file(spool_file, header_info=None):
 
     if header_info is None:
-        header_info, _ = read_header(file_name)
+        header_info, _ = read_header(spool_file)
 
     ################################################################
     ## READ HICAM DATA IN ALL AT ONCE then convert to numpy z-stack
@@ -212,6 +235,7 @@ def read_data_file(file_name, header_info=None):
 
     print(f'Forming Array')
     for idx in range(how_many_frames):
+        print(f'Converting {idx} of {how_many_frames}')
         where_to_start = idx * pixelInFrame_bit8
         data = multi_frame[where_to_start:where_to_start + pixelInFrame_bit8]
 
@@ -484,7 +508,7 @@ def write_part(zarr_location, writedict):
 
 
 
-def send_hicam_to_zarr_par(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, frames_at_once=1024):
+def send_hicam_to_zarr_par(hicam_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, frames_at_once=1024, cube_chunk=None):
 
     import dask
     from dask import delayed
@@ -510,7 +534,13 @@ def send_hicam_to_zarr_par(hicam_file,zarr_location,compressor_type='zstd', comp
     frame_shape = get_frame_shape(hicam_file, header_info=header_dict)
 
     array_shape = (num_frames, frame_shape[0], frame_shape[1])
-    chunks = (chunk_depth, array_shape[1] // 2, array_shape[2] // 2) #Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
+    # chunks = (chunk_depth, array_shape[1] // 2, array_shape[2] // 2) #Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
+
+    if cube_chunk:
+        chunks = (cube_chunk, cube_chunk, cube_chunk)
+    else:
+        chunks = (chunk_depth, array_shape[1] // 8,
+                  array_shape[2] // 8)  # Chunks in x,y are 2x2 to account for the 2x2 channels in each frame
 
     array = zarr.zeros(store=store, shape=array_shape, chunks=chunks, compressor=compressor,
                        dtype='uint16')
