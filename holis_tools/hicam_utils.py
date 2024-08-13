@@ -331,52 +331,6 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
 
             yield output[:current_num_frames]
 
-# def read_part_data_file_par(file_name, header_info=None, frames_at_once=1024):
-#
-#     if header_info is None:
-#         header_info, _ = read_header(file_name)
-#
-#     ################################################################
-#     ## READ HICAM DATA IN ALL AT ONCE then convert to numpy z-stack
-#     ################################################################
-#
-#     pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
-#
-#     chunk_shape = (frames_at_once, header_info['y'], header_info['x'])
-#
-#     output = np.zeros(chunk_shape, 'uint16')
-#
-#     start_index = get_header_size(file_name, header_info=header_info)
-#     read_len = frames_at_once * pixelInFrame_bit8
-#
-#     with open(spool_file, 'rb') as f:
-#         f.seek(start_index)
-#
-#         while True:
-#             multi_frame = f.read(read_len)
-#
-#             if len(multi_frame) == 0:
-#                 '''When no more data remains exit the while loop'''
-#                 break
-#
-#             current_num_frames = len(multi_frame) // pixelInFrame_bit8
-#             print(f'{current_num_frames=}')
-#
-#             print(f'Forming Array')
-#             for idx in range(current_num_frames):
-#                 where_to_start = idx * pixelInFrame_bit8
-#                 data = multi_frame[where_to_start:where_to_start + pixelInFrame_bit8]
-#                 print(f'{current_num_frames=}, {where_to_start=}, {idx=}, Data length = {len(data)}')
-#
-#                 # Data to uint16 where uint12 values have been scaled to uint16 values
-#                 # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
-#                 canvas = read_uint12(data, coerce_to_uint16_values=True)
-#                 print(f'{canvas.shape}')
-#                 # canvas = read_uint12(data, coerce_to_uint16_values=False)
-#
-#                 output[idx] = canvas.reshape((header_info['y'], header_info['x']))
-#
-#             yield output[:current_num_frames]
 
 
 '''
@@ -653,6 +607,18 @@ def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='z
     # Dump header information to root of zarr store
     header_dict, raw_string = read_header(hicam_file)
     header_json = json.dumps(header_dict, indent=4)
+    store['README.txt'] = f'''
+        This zarr array was created using holis_tools which turns 12bit hicam camera files into zarr arrays
+        In addition to zarr, two plain text files should be found in this folder called: header.json and header_raw.txt
+
+        Origional File: {hicam_file}
+
+        Function used to create this zarr array: holis_tools.send_hicam_to_zarr_par_read_once
+        Specific command: send_hicam_to_zarr_par_read_once({hicam_file=},{zarr_location=},{compressor_type=},{compressor_level=},{shuffle=}, {chunk_depth=},{chunk_lat=}, {frames_at_once=})
+
+        header.json: A json representation of data extracted from the hicam file header collected by function holis_tools.hicam_utils.read_header
+        header_raw.txt: The RAW header information from the hicam file dumped here.
+        '''.encode()
     store['header.json'] = header_json.encode()
     store['header_raw.txt'] = raw_string.encode()
 
@@ -887,36 +853,6 @@ def send_hicam_to_zarr_par_read_groups_par(hicam_file,zarr_location,compressor_t
 
 
 
-# {'start':start,
-#                'stop':stop,
-#                'group':idx,
-#                'len':length,
-#                'file':file_name,
-#                'frames':length//pixelInFrame_bit8,
-#                'pixelInFrame_bit8':pixelInFrame_bit8,
-#                'last':remaining==0,
-#                'frames_at_once':frames_at_once}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -953,17 +889,58 @@ class open_hicam_array_as_aligned_color_dataset:
 
     def __init__(self,zarr_location):
 
+        # Store origional hicam_file zarr representation
+        self.path = zarr_location
         self.store = H5_Nested_Store(zarr_location, 'r')
         self.array = zarr.open(self.store, 'r')
 
-        # Output array details
+        # Store details of virtual multicolor array assuming each z-layer is divided into a 2x2 grid of images
+        # representing each color
         self.shape = (4,self.array.shape[0],self.array.shape[1]//2,self.array.shape[2]//2)
         self.dtype = self.array.dtype
         self.size = self.array.size
         self.ndims = 4
         self.chunks = (4,self.array[0],self.shape[2],self.shape[3])
 
+        self.hicam_color_shifts = self.array.attrs.get('hicam_color_shifts')
+        self.lighting_mean = None
+        self.lighting_mask = None
+        if os.path.exists(os.path.join(self.path,'mean.tiff')):
+            self.lighting_mean = io.imread(os.path.join(self.path,'mean.tiff'))
+            self.lighting_mean = img_as_float32(self.lighting_mean)
+            self.lighting_max = self.lighting_mean.max()
+    def lighting_correction(self, image):
+        image_max = image.max()
+        image_32 = img_as_float32(image)
+        correct = image_32/ self.lighting_mean
+        scale_factor = image_max/correct.max()
+        correct *= scale_factor
+        print(f'{correct.max()}, {correct.min()}')
+        return correct.astype(np.uint16)
+
+    def calculate_shifts(self, z_range = None):
+        if z_range is None:
+            # Select the middle 1000 z layers to calculate shifts.
+            # Only 1 in every 10 frames is calculated, so middle 1000 = 100 frames aligned.
+            mid_z = self.shape[1]//2
+            z_range = (mid_z-500, mid_z+500)
+            # z_range = (mid_z - 1000, mid_z + 1000)
+            # z_range = (mid_z - 2500, mid_z + 2500)
+        self.hicam_color_shifts = calculate_channel_shifts(self, anchor_channel=0, z_range=z_range)
+        # Store origional hicam_file zarr representation
+        store = H5_Nested_Store(self.path, 'a')
+        array = zarr.open(store, 'a')
+        array.attrs['hicam_color_shifts'] = self.hicam_color_shifts
+
+        del array
+        del store
+
+
     def __getitem__(self, item):
+        '''
+        Get slice information and apply this to each of the 4 colors quadrants (colors) and combine into
+        a single color image.
+        '''
         print(f'In slice: {item}')
 
         if isinstance(item, int):
@@ -990,6 +967,31 @@ class open_hicam_array_as_aligned_color_dataset:
 
             item = tmp_slice
 
+
+        for idx in range(self.ndims):
+
+            if item[idx] == slice(None):
+                item[idx] = slice(0,self.shape[idx])
+
+            elif isinstance(item[idx], int):
+                item[idx] = slice(item[idx],item[idx]+1)
+
+            elif isinstance(item[idx], slice) and \
+                    item[idx].start is None and \
+                    isinstance(item[idx].stop, int):
+                item[idx] = slice(item[idx].stop, item[idx].stop + 1)
+
+        for idx, slc in enumerate(item):
+            assert slc.start < self.shape[idx], f'Index of {slc.start} at dim {idx} is out of range'
+            assert slc.stop <= self.shape[idx], f'Index of {slc.stop} at dim {idx} is out of range'
+
+
+
+
+
+
+        print(item)
+
         # print(f'Out slice: {item}')
         ## ITEM is now the corrected slice for the virtual array
 
@@ -1006,8 +1008,13 @@ class open_hicam_array_as_aligned_color_dataset:
         )
         # print(canvas.shape)
 
-        for clr_idx in range(canvas.shape[0]):
-            clr = clr_idx + item[0].start
+        ## Extract each color channel
+        color_slice = item[0]
+        color_slice = [x for x in range(color_slice.start,color_slice.stop,color_slice.step if color_slice.step is not None else 1)]
+        print(f'{color_slice=}')
+        #for clr_idx in range(canvas.shape[0]):
+        for clr_idx, clr in enumerate(color_slice):
+            #clr = clr_idx + item[0].start
             # print(f'CLR index = {clr}')
             if clr == 0:
                 color_slice = (
@@ -1031,6 +1038,14 @@ class open_hicam_array_as_aligned_color_dataset:
                 )
 
             out = self.array[item[1],color_slice[0],color_slice[1]]
+            while out.ndim < 3:
+                'Ensure all 3 dims are present'
+                np.expand_dims(out, 0)
+            if self.hicam_color_shifts:
+                # out[:] = np.roll(out, self.hicam_color_shifts[str(clr)][0],axis=2)
+                # out[:] = np.roll(out, self.hicam_color_shifts[str(clr)][1], axis=1)
+                out[:] = np.roll(out, self.hicam_color_shifts[str(clr)][0], axis=1)
+                out[:] = np.roll(out, self.hicam_color_shifts[str(clr)][1], axis=2)
             # print(out.shape)
             # print(out)
             out = out[:,item[-2],item[-1]]
@@ -1107,7 +1122,8 @@ def sitk_align_translation(fixed, moving, output_offsets=False):
         # Returned axes are in order (y,x)
         offsets = outTx.GetParameters()[::-1]
         # print(offsets)
-        return offsets
+        # invert offsets
+        return tuple([-x for x in offsets])
 
     # Produce aligned image
     resampler = sitk.ResampleImageFilter()
@@ -1153,12 +1169,13 @@ def calculate_channels_shift(multi_channel_z_stack, reference_channel=None):
             for z_idx in range(moving_array.shape[0]):
                 # print(z_idx)
                 if z_idx%10 == 0:
-                    # print(f'Getting Reference and Moving images')
+                    print(f'Getting Reference and Moving images')
                     reference[:] = ref_array[z_idx]
                     moving[:] = moving_array[z_idx]
-                    # print(f'Aligning Image {z_idx} of {multi_channel_z_stack.shape[1]}')
+                    print(f'Aligning Image {z_idx} of {multi_channel_z_stack.shape[1]}')
                     # shift, error, phasediff = phase_cross_correlation(reference,moving)
                     # print(f'Shift = {shift}, error = {error}, phasediff = {phasediff}')
+                    print(f'{reference.shape}, {moving.shape}')
                     shift = sitk_align_translation(reference, moving, output_offsets=True)
                     print(f'{z_idx} of {moving_array.shape[0]}; Shift = {shift}')
                     shift_dict[ch_idx].append(shift)
@@ -1166,64 +1183,154 @@ def calculate_channels_shift(multi_channel_z_stack, reference_channel=None):
     return shift_dict
 
 
-def calculate_channel_shifts(zarr_spool_location, anchor_channel):
+# def calculate_channel_shifts(zarr_spool_location, anchor_channel=0, z_range=None):
+#     '''
+#         This function takes a 4 channels image and aligns the channels relative to one of the 4 channel (anchor_channel)
+#         then calculates the translational shift required to overlay them.
+#
+#         This version of the function uses a median to calculate the shifts
+#         '''
+#     # import statistics
+#     # np.median = statistics.geometric_mean
+#
+#     a = open_hicam_array_as_aligned_color_dataset(zarr_spool_location)
+#
+#     if z_range is None:
+#         shift_dict = calculate_channels_shift(a, reference_channel=anchor_channel)
+#     elif isinstance(z_range, tuple):
+#         image = a[:,z_range[0]:z_range[1]]
+#         shift_dict = calculate_channels_shift(image, reference_channel=anchor_channel)
+#
+#
+#     shift_medians = {
+#             0:None,
+#             1:None,
+#             2:None,
+#             3:None
+#         }
+#
+#     for key in shift_dict:
+#         x = np.median(
+#             np.array(
+#             [x[0] for x in shift_dict[key]]
+#         )
+#         )
+#         x = 0 if x is np.nan else x
+#         y = np.median(
+#             np.array(
+#             [x[1] for x in shift_dict[key]]
+#         )
+#         )
+#         y = 0 if y is np.nan else y
+#
+#         try:
+#             shift_medians[key] = (round(y),round(x))
+#         except Exception:
+#             shift_medians[key] = (0, 0)
+#     return shift_medians
 
-    a = open_hicam_array_as_aligned_color_dataset(zarr_spool_location)
 
-    shift_dict = calculate_channels_shift(a, reference_channel=anchor_channel)
+def calculate_channel_shifts(zarr_spool_location, anchor_channel=0, z_range=None):
+    '''
+    This function takes a 4 channels image and aligns the channels relative to one of the 4 channel (anchor_channel)
+    then calculates the translational shift required to overlay them.
 
+    This version of the function uses a geometric mean to calculate the shifts
+    '''
+    import statistics
+
+    if isinstance(zarr_spool_location,open_hicam_array_as_aligned_color_dataset):
+        a = zarr_spool_location
+    elif isinstance(zarr_spool_location,str):
+        a = open_hicam_array_as_aligned_color_dataset(zarr_spool_location)
+
+    if z_range is None:
+        shift_dict = calculate_channels_shift(a, reference_channel=anchor_channel)
+    elif isinstance(z_range, tuple):
+        image = a[:, z_range[0]:z_range[1]]
+        shift_dict = calculate_channels_shift(image, reference_channel=anchor_channel)
 
     shift_medians = {
-            0:None,
-            1:None,
-            2:None,
-            3:None
-        }
+        0: None,
+        1: None,
+        2: None,
+        3: None
+    }
 
     for key in shift_dict:
-        x = np.median(
-            np.array(
+        print(f'{shift_dict[key]}')
+        x = np.array(
             [x[0] for x in shift_dict[key]]
         )
+        print(f'{x=}')
+        tmp = 0
+        if x.size == 0:
+            x = np.array([0])
+        if int(min(x)) <= 0:
+            tmp = abs(min(x)) + 1
+            x += tmp
+        x = statistics.geometric_mean(
+            x
         )
-        x = 0 if x is np.nan else x
-        y = np.median(
-            np.array(
+        x -= tmp
+        # x = int(x)
+        # x = 0 if x is np.nan else x
+
+        y = np.array(
             [x[1] for x in shift_dict[key]]
         )
+        tmp = 0
+        if y.size == 0:
+            y = np.array([0])
+        if int(min(y)) <= 0:
+            tmp = abs(min(y)) + 1
+            y += tmp
+        y = statistics.geometric_mean(
+            y
         )
-        y = 0 if y is np.nan else y
+        y -= tmp
+        # y = int(y)
+
+        # y = 0 if y is np.nan else y
 
         try:
-            shift_medians[key] = (round(y),round(x))
+            shift_medians[key] = (round(y), round(x))
         except Exception:
             shift_medians[key] = (0, 0)
     return shift_medians
 
 
+#######################################################################################
+# Below is for testing and runs when the script is called directly
+#######################################################################################
 
-# import os, time
-#
-# base = '/bil/proj/rf1hillman/2024_01_30_dualHiCAM_sampleDataForCompression'
-#
-# spool_files = (
-#     'longRun3-y1-z0_HiCAM FLUO_1875-ST-088.fli',
-#     'longRun4-y1-z1_HiCAM FLUO_1875-ST-088.fli',
-#     'longRun3-y1-z0_HiCAM FLUO_1875-ST-272.fli',
-#     'longRun4-y1-z1_HiCAM FLUO_1875-ST-272.fli'
-# )
-#
-# spool_files = [os.path.join(base,x) for x in spool_files]
-#
-# zarr_locations = [os.path.join(r'/bil/users/awatson/holis',os.path.split(x)[-1] + '_ZARR_OUT') for x in spool_files]
-#
-# def run():
-#     start = time.time()
-#     for spool_file, zarr_location in zip(spool_files, zarr_locations):
-#         send_hicam_to_zarr_par_read_once(spool_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, frames_at_once=128)
-#     stop = time.time()
-#     print(f'Total time = {stop}')
-#
-# if __name__ == "__main__":
-#     run()
+if __name__ == "__main__":
+
+    import os, time
+
+    base = '/CBI_FastStore/hillman/test_run_small'
+
+    spool_files = (
+        'longRun3-y1-z0_HiCAM FLUO_1875-ST-088.fli',
+        'longRun4-y1-z1_HiCAM FLUO_1875-ST-088.fli',
+        'longRun3-y1-z0_HiCAM FLUO_1875-ST-272.fli',
+        'longRun4-y1-z1_HiCAM FLUO_1875-ST-272.fli'
+    )
+
+    spool_files = [os.path.join(base,x) for x in spool_files]
+
+    # zarr_locations = [os.path.join(r'/bil/users/awatson/holis',os.path.split(x)[-1] + '_ZARR_OUT') for x in spool_files]
+    zarr_locations = [x + '_ZARR_OUT' for x in spool_files]
+
+    # def run():
+    #     start = time.time()
+    #     for spool_file, zarr_location in zip(spool_files, zarr_locations):
+    #         send_hicam_to_zarr_par_read_once(spool_file,zarr_location,compressor_type='zstd', compressor_level=5, shuffle=1, chunk_depth=128, frames_at_once=128)
+    #     stop = time.time()
+    #     print(f'Total time = {stop}')
+
+
+    # run()
+    a = [open_hicam_array_as_aligned_color_dataset(zarr_locations[0])]
+    # a = [open_hicam_array_as_aligned_color_dataset(x) for x in zarr_locations]
 
