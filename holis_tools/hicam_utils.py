@@ -1013,6 +1013,12 @@ class open_hicam_array_as_aligned_color_dataset:
         color_slice = [x for x in range(color_slice.start,color_slice.stop,color_slice.step if color_slice.step is not None else 1)]
         print(f'{color_slice=}')
         #for clr_idx in range(canvas.shape[0]):
+        orig = self.array[item[1]]
+        while orig.ndim < 3:
+            'Ensure all 3 dims are present'
+            np.expand_dims(orig, 0)
+        print(f'Calculating Lighting correction')
+        orig = self.lighting_correction(orig)
         for clr_idx, clr in enumerate(color_slice):
             #clr = clr_idx + item[0].start
             # print(f'CLR index = {clr}')
@@ -1037,10 +1043,8 @@ class open_hicam_array_as_aligned_color_dataset:
                     slice(self.shape[3], self.shape[3]*2)
                 )
 
-            out = self.array[item[1],color_slice[0],color_slice[1]]
-            while out.ndim < 3:
-                'Ensure all 3 dims are present'
-                np.expand_dims(out, 0)
+            out = orig[:,color_slice[0], color_slice[1]]
+            print(f'{out.shape}')
             if self.hicam_color_shifts:
                 # out[:] = np.roll(out, self.hicam_color_shifts[str(clr)][0],axis=2)
                 # out[:] = np.roll(out, self.hicam_color_shifts[str(clr)][1], axis=1)

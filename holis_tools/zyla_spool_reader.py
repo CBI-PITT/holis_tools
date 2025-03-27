@@ -4,24 +4,28 @@ from compression_tools.alt_zip import alt_zip
 import configparser
 import numpy as np
 import io
-import matplotlib
 import warnings
+import os
+import glob
 
 
-
-test_spool_zip = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV5_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
-
-# spool_set = alt_zip(test_spool_zip)
-
-# with open(r'H:\globus\pitt\bil\hillman\spool_examples\Planes_secondColor_run12__z01_y12_Exc_488nm_660nm\acquisitionmetadata.ini','r') as f:
-#     print(f.read())
 
 class spool_set_interpreter:
 
     def __init__(self,compression_tools_zip_file):
-        self.compression_tools_zip_file = compression_tools_zip_file
-        self.location = compression_tools_zip_file
-        self.spool_set = alt_zip(self.location)
+        if os.path.isfile(compression_tools_zip_file) and os.path.splitext(compression_tools_zip_file)[-1] == '.zip':
+            self.type = '.zip'
+            self.compression_tools_zip_file = compression_tools_zip_file
+            self.location = compression_tools_zip_file
+            self.spool_set = alt_zip(self.location)
+        elif os.path.isdir(compression_tools_zip_file):
+            self.type = 'dir'
+            self.parent = compression_tools_zip_file
+            self.file_list = glob.glob(os.path.join(compression_tools_zip_file,'*'))
+            self.spool_set = tuple([os.path.split(x)[-1] for x in self.file_list])
+        else:
+            assert False, 'The input data structure is not a ZIP file or Directory'
+
 
         self._what_spool_format()
         self.spool_files = tuple(self._get_spool_names_in_order()) # In order
@@ -29,10 +33,16 @@ class spool_set_interpreter:
         self._get_config()
         self._extract_config_values()
 
+    def _make_filename_from_spool_set(self,spool_entry):
+        return os.path.join(self.parent, spool_entry)
 
     @property
     def entries(self):
-        return self.spool_set.entries
+        if self.type == '.zip':
+            return self.spool_set.entries
+        elif self.type == 'dir':
+            return self.spool_set
+
 
     def _what_spool_format(self):
         if 'Spooled files.sifx' in self.entries:
@@ -49,7 +59,12 @@ class spool_set_interpreter:
         )
         )
     def _get_acquisitionparameters_str(self):
-        ini = self.spool_set['acquisitionmetadata.ini']
+        if self.type == '.zip':
+            ini = self.spool_set['acquisitionmetadata.ini']
+        elif self.type == 'dir':
+            file = self._make_filename_from_spool_set('acquisitionmetadata.ini')
+            with open(file,'rb') as f:
+                ini = f.read()
         ini = ini.decode('UTF-8-sig')  # Encoding for acquisitionmetadata.ini
         self.acquisitionparameters_str = ini
 
@@ -96,7 +111,13 @@ class spool_set_interpreter:
         self.spool_shape = (numFramesPerSpool, numRows, numColumns)
 
     def _load_spool_file(self,spool_file_name):
-        array = np.frombuffer(self.spool_set[spool_file_name],dtype=self.dtype)
+        if self.type == '.zip':
+            array = np.frombuffer(self.spool_set[spool_file_name],dtype=self.dtype)
+        elif self.type == 'dir':
+            file = self._make_filename_from_spool_set(spool_file_name)
+            print(f'Reading file {spool_file_name}')
+            with open(file, 'rb') as f:
+                array = np.frombuffer(f.read(),dtype=self.dtype)
         return np.reshape(array, self.spool_shape)
 
     def __getitem__(self,key):
@@ -144,13 +165,19 @@ class spool_set_interpreter:
         return canvas
 
 
-a = spool_set_interpreter(test_spool_zip)
-b = a.assemble()
+if __name__ == '__main__':
 
-c = b[:,100]
-import skimage
-import matplotlib.pyplot as plt
-skimage.io.imshow(c*100)
-plt.show()
+    # test_spool_zip_or_dir = r'H:\globus\pitt\bil\hillman\spool_examples\COMPRESSED_CLEV5_Planes_secondColor_run12__z01_y12_Exc_488nm_660nm.zip'
+    # test_spool_zip_or_dir = r'/h20/globus/pitt/bil/hillman/spool_examples/old/Planes_secondColor_run12__z01_y12_Exc_488nm_660nm'
+    #
+    # a = spool_set_interpreter(test_spool_zip_or_dir)
+    # b = a.assemble()
+    #
+    # c = b[:,100]
+    # print(c)
+    # import skimage
+    # import matplotlib.pyplot as plt
+    # skimage.io.imshow(c*100)
+    # plt.show()
 
 
