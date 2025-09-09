@@ -472,10 +472,10 @@ def get_start_stop_reads_for_frame_groups(file_name, header_info=None, frames_at
     pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
 
     how_many_frames = header_info['timestamps']
+    size_of_file = get_len_fli(file_name)
+    header_len = header_info['headerLength']
+    data_size = size_of_file - header_len
     if how_many_frames is None:
-        size_of_file = get_len_fli(file_name)
-        header_len = header_info['headerLength']
-        data_size = size_of_file - header_len
         num_frames_remainder = data_size % pixelInFrame_bit8
         assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
         how_many_frames = data_size // pixelInFrame_bit8
@@ -1393,7 +1393,7 @@ if __name__ == "__main__":
     zarr_location = "/bil/users/awatson/test_hicam_out"
     send_hicam_to_zarr_par_read_once(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
                                      chunk_depth=128, chunk_lat=128, frames_at_once=1024)
-    
+
 
     #
     # base = '/CBI_FastStore/hillman/test_run_small'
