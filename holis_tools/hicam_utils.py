@@ -34,6 +34,7 @@ from numcodecs import Blosc
 # blosc.set_nthreads(16)
 from zarr_stores.h5_nested_store import H5_Nested_Store
 import zarr
+import zstandard as zstd
 from skimage import io
 
 header_info = {
@@ -94,6 +95,87 @@ header_info = {
     'Intensifier_GateEnableInputSwitch': None,
     # 'headerLength': header_length,  # Index of last entry in the header
 }
+
+def is_compressed_fli(file_name):
+    # Extract the first extension (.zst)
+    file_name, ext1 = os.path.splitext(file_name)
+
+    if ext1.lower() == 'fli':
+        return False
+
+    # Extract the second extension (.fli) from the remaining filename
+    _, ext2 = os.path.splitext(file_name)
+
+    assert ext2.lower() == 'fli', 'File does not appear to be a compressed fli.'
+    return ext1.lower() == 'zst'
+
+def get_len_fli(file_name):
+    compressed = is_compressed_fli(file_name)
+    if not compressed:
+        return os.path.getsize(file_path)
+    else:
+        with open(file_name, 'rb') as f:
+            header_size = 18
+            header_data = f.read(header_size)
+
+            # Parse the header to get frame parameters
+            frame_params = zstd.get_frame_parameters(header_data)
+
+            # The content_size attribute holds the decompressed size
+            # A value of -1 means the size is not stored in the header
+            if frame_params.content_size >= 0:
+                return frame_params.content_size
+
+    return None
+
+
+import zstandard as zstd
+from pathlib import Path
+
+
+class FliOpen:
+    """
+    A context manager for opening files, handling .fli.zstd compression automatically.
+
+    If the file ends with '.zstd', it returns a zstandard decompressor stream reader.
+    Otherwise, it returns a standard file object from open().
+    """
+
+    def __init__(self, file_name):
+        self.file_name = file_name
+        self.compressed = is_compressed_fli(file_name)
+        #self.size = get_len_fli(file_name)
+        self._f_in = None
+        self._file_obj = None
+
+    def __enter__(self):
+        # Open the file in binary mode for both compressed and uncompressed files
+        # because zstandard works with binary streams.
+        # The mode is adjusted inside the decompression logic.
+        self._f_in = open(self.filename, 'rb')
+
+        # Check if the file has a .zstd extension
+        if self.compressed:
+            dctx = zstd.ZstdDecompressor()
+            # Wrap the binary file handle in a zstandard stream reader context manager.
+            # This is also a context manager, so we store the object it returns.
+            self._file_obj = dctx.stream_reader(self._f_in)
+            return self._file_obj
+        else:
+            # For non-zstd files, use the regular open() file handle.
+            self._file_obj = self._f_in
+            return self._file_obj
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Ensure all open file handles are properly closed upon exiting the context.
+        if self._file_obj:
+            self._file_obj.close()
+        if self._f_in:
+            self._f_in.close()
+        return False  # Propagate any exceptions
+
+
+
 def read_header(file_name):
     '''
     Given a file name, read hicam header and extract parameters into a dictionary.  Make an effort to coerce
@@ -105,7 +187,7 @@ def read_header(file_name):
     '''
     read_n = 0
     fileinfo = b''
-    with open(file_name, 'rb') as f:
+    with FliOpen(file_name, 'rb') as f:
         while read_n < 40:
             a = f.read(1000)
             fileinfo += a
@@ -205,11 +287,13 @@ def read_data_file(spool_file, header_info=None):
 
     pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
 
+    size_of_file = get_len_fli(file_name)
+
     how_many_frames = header_info['timestamps']
     if how_many_frames is None:
         with open(spool_file, 'rb') as f:
-            f.seek(0, os.SEEK_END)
-            size_of_file = f.tell()
+            # f.seek(0, os.SEEK_END)
+            # size_of_file = f.tell()
             print(f'{size_of_file=}')
             header_len = header_info['headerLength']
             print(f'{header_len=}')
@@ -227,7 +311,7 @@ def read_data_file(spool_file, header_info=None):
     #make tuple of slices to extract
 
     with open(spool_file, 'rb') as f:
-        size_of_file = f.tell()
+        # size_of_file = f.tell()
         print(f'{size_of_file=}')
         print(f'Reading {how_many_frames} frames')
         f.seek(header_info['headerLength'])
