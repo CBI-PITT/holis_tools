@@ -152,7 +152,7 @@ class FliOpen:
         # Open the file in binary mode for both compressed and uncompressed files
         # because zstandard works with binary streams.
         # The mode is adjusted inside the decompression logic.
-        self._f_in = open(self.filename, 'rb')
+        self._f_in = open(self.file_name, 'rb')
 
         # Check if the file has a .zstd extension
         if self.compressed:
