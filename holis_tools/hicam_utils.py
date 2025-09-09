@@ -716,7 +716,7 @@ def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='z
 
     print('Reading hicam file into memory')
 
-    with FliOpen(hicam_file, 'rb') as f:
+    with FliOpen(hicam_file) as f:
 
         to_process = []
         for location in get_start_stop_reads_for_frame_groups(hicam_file, header_info=None, frames_at_once=frames_at_once):
