@@ -471,14 +471,14 @@ def get_start_stop_reads_for_frame_groups(file_name, header_info=None, frames_at
 
     pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
 
-    how_many_frames = header_info['timestamps']
+    # how_many_frames = header_info['timestamps']
     size_of_file = get_len_fli(file_name)
     header_len = header_info['headerLength']
     data_size = size_of_file - header_len
-    if how_many_frames is None:
-        num_frames_remainder = data_size % pixelInFrame_bit8
-        assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
-        how_many_frames = data_size // pixelInFrame_bit8
+    # if how_many_frames is None:
+    #     num_frames_remainder = data_size % pixelInFrame_bit8
+    #     assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
+    #     how_many_frames = data_size // pixelInFrame_bit8
 
 
     read_len = frames_at_once * pixelInFrame_bit8
@@ -716,7 +716,7 @@ def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='z
 
     print('Reading hicam file into memory')
 
-    with open(hicam_file, 'rb') as f:
+    with FliOpen(hicam_file, 'rb') as f:
 
         to_process = []
         for location in get_start_stop_reads_for_frame_groups(hicam_file, header_info=None, frames_at_once=frames_at_once):
