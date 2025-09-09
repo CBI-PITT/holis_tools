@@ -187,7 +187,7 @@ def read_header(file_name):
     '''
     read_n = 0
     fileinfo = b''
-    with FliOpen(file_name, 'rb') as f:
+    with FliOpen(file_name) as f:
         while read_n < 40:
             a = f.read(1000)
             fileinfo += a
