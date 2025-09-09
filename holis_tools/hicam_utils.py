@@ -287,22 +287,19 @@ def read_data_file(spool_file, header_info=None):
 
     pixelInFrame_bit8 = int(header_info['x'] * header_info['y'] / 2 * 3)  # Number of bits in frame
 
-    size_of_file = get_len_fli(file_name)
+    size_of_file = get_len_fli(spool_file)
 
     how_many_frames = header_info['timestamps']
     if how_many_frames is None:
-        with open(spool_file, 'rb') as f:
-            # f.seek(0, os.SEEK_END)
-            # size_of_file = f.tell()
-            print(f'{size_of_file=}')
-            header_len = header_info['headerLength']
-            print(f'{header_len=}')
-            data_size = size_of_file - header_len
-            print(f'{data_size=}')
-            num_frames_remainder = data_size%pixelInFrame_bit8
-            print(f'{num_frames_remainder=}')
-            how_many_frames = data_size//pixelInFrame_bit8
-            print(f'{how_many_frames=}')
+        print(f'{size_of_file=}')
+        header_len = header_info['headerLength']
+        print(f'{header_len=}')
+        data_size = size_of_file - header_len
+        print(f'{data_size=}')
+        num_frames_remainder = data_size%pixelInFrame_bit8
+        print(f'{num_frames_remainder=}')
+        how_many_frames = data_size//pixelInFrame_bit8
+        print(f'{how_many_frames=}')
 
     chunk_shape = (how_many_frames, header_info['y'], header_info['x'])
 
@@ -356,14 +353,12 @@ def get_number_of_frames(file_name, header_info=None):
 
     how_many_frames = header_info['timestamps']
     if how_many_frames is None:
-        with open(file_name, 'rb') as f:
-            f.seek(0, os.SEEK_END)
-            size_of_file = f.tell()
-            header_len = header_info['headerLength']
-            data_size = size_of_file - header_len
-            num_frames_remainder = data_size % pixelInFrame_bit8
-            assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
-            how_many_frames = data_size // pixelInFrame_bit8
+        size_of_file = get_len_fli(file_name)
+        header_len = header_info['headerLength']
+        data_size = size_of_file - header_len
+        num_frames_remainder = data_size % pixelInFrame_bit8
+        assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
+        how_many_frames = data_size // pixelInFrame_bit8
 
     return how_many_frames
 
@@ -478,14 +473,12 @@ def get_start_stop_reads_for_frame_groups(file_name, header_info=None, frames_at
 
     how_many_frames = header_info['timestamps']
     if how_many_frames is None:
-        with open(file_name, 'rb') as f:
-            f.seek(0, os.SEEK_END)
-            size_of_file = f.tell()
-            header_len = header_info['headerLength']
-            data_size = size_of_file - header_len
-            num_frames_remainder = data_size % pixelInFrame_bit8
-            assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
-            how_many_frames = data_size // pixelInFrame_bit8
+        size_of_file = get_len_fli(file_name)
+        header_len = header_info['headerLength']
+        data_size = size_of_file - header_len
+        num_frames_remainder = data_size % pixelInFrame_bit8
+        assert num_frames_remainder == 0, 'The length of the spool file does not fit an integer number of frames'
+        how_many_frames = data_size // pixelInFrame_bit8
 
 
     read_len = frames_at_once * pixelInFrame_bit8
@@ -642,7 +635,7 @@ def write_part_bytes(zarr_location, bytes_from_file, writedict):
 # tmp = delayed(write_part_bytes_all)(zarr_location, frames, location, hicam_file, location['start'], location['len'])
 def write_part_bytes_all(zarr_location, writedict, file, start, stop):
 
-    with open(file, 'rb') as f:
+    with FliOpen(file, 'rb') as f:
         f.seek(start)
         bytes_from_file = f.read(stop)
 
@@ -695,7 +688,7 @@ def send_hicam_to_zarr_par_read_once(hicam_file,zarr_location,compressor_type='z
         This zarr array was created using holis_tools which turns 12bit hicam camera files into zarr arrays
         In addition to zarr, two plain text files should be found in this folder called: header.json and header_raw.txt
 
-        Origional File: {hicam_file}
+        Original File: {hicam_file}
 
         Function used to create this zarr array: holis_tools.send_hicam_to_zarr_par_read_once
         Specific command: send_hicam_to_zarr_par_read_once({hicam_file=},{zarr_location=},{compressor_type=},{compressor_level=},{shuffle=}, {chunk_depth=},{chunk_lat=}, {frames_at_once=})
@@ -1397,6 +1390,11 @@ if __name__ == "__main__":
     import os, time
 
     file = "/bil/proj/rf1hillman/HOLiS_NPBB328_Cortex/Slab6/2025_08_22_HOLiS_NPBB328_Cortex_Slab06/NPBB328-Cortex-Slab06-run999-z13-y044-Exc-488nm-561nm-594nm-660nm_HiCAM FLUO_1875-ST-272.fli.zst"
+    zarr_location = "/bil/users/awatson/test_hicam_out"
+    send_hicam_to_zarr_par_read_once(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
+                                     chunk_depth=128, chunk_lat=128, frames_at_once=1024)
+    
+
     #
     # base = '/CBI_FastStore/hillman/test_run_small'
     #
