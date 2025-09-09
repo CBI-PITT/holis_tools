@@ -100,14 +100,14 @@ def is_compressed_fli(file_name):
     # Extract the first extension (.zst)
     file_name, ext1 = os.path.splitext(file_name)
 
-    if ext1.lower() == 'fli':
+    if ext1.lower() == '.fli':
         return False
 
     # Extract the second extension (.fli) from the remaining filename
     _, ext2 = os.path.splitext(file_name)
 
-    assert ext2.lower() == 'fli', 'File does not appear to be a compressed fli.'
-    return ext1.lower() == 'zst'
+    assert ext2.lower() == '.fli', 'File does not appear to be a compressed fli.'
+    return ext1.lower() == '.zst'
 
 def get_len_fli(file_name):
     compressed = is_compressed_fli(file_name)
