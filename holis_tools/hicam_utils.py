@@ -381,7 +381,7 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
     start_index = get_header_size(file_name, header_info=header_info)
     read_len = frames_at_once * pixelInFrame_bit8
 
-    with FliOpen(spool_file, 'rb') as f:
+    with FliOpen(file_name) as f:
         f.seek(start_index)
 
         while True:
