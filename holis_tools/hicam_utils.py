@@ -406,9 +406,10 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
                 print(f'{canvas.shape}')
                 # canvas = read_uint12(data, coerce_to_uint16_values=False)
 
-                output[idx] = canvas.reshape((header_info['y'], header_info['x']))
+                yield canvas.reshape((header_info['y'], header_info['x']))
+                # output[idx] = canvas.reshape((header_info['y'], header_info['x']))
 
-            yield output[:current_num_frames]
+            # yield output[:current_num_frames]
 
 
 
