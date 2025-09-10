@@ -406,7 +406,7 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
                 # Data to uint16 where uint12 values have been scaled to uint16 values
                 # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
                 canvas = read_uint12(data, coerce_to_uint16_values=True)
-                print(f'{canvas.shape}')
+                #print(f'{canvas.shape}')
                 # canvas = read_uint12(data, coerce_to_uint16_values=False)
 
                 output[idx] = canvas.reshape((header_info['y'], header_info['x']))
