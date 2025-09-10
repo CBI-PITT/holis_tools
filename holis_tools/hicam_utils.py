@@ -384,6 +384,7 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
     with FliOpen(file_name) as f:
         f.seek(start_index)
 
+        read_number = 0
         while True:
             multi_frame = f.read(read_len)
 
@@ -392,13 +393,15 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
                 break
 
             current_num_frames = len(multi_frame) // pixelInFrame_bit8
-            print(f'{current_num_frames=}')
 
-            print(f'Forming Array')
+            read_number += 1
+            print(f'Reading frames set {read_number} of {current_num_frames} frames')
+
+            # print(f'Forming Array')
             for idx in range(current_num_frames):
                 where_to_start = idx * pixelInFrame_bit8
                 data = multi_frame[where_to_start:where_to_start + pixelInFrame_bit8]
-                print(f'{current_num_frames=}, {where_to_start=}, {idx=}, Data length = {len(data)}')
+                # print(f'{current_num_frames=}, {where_to_start=}, {idx=}, Data length = {len(data)}')
 
                 # Data to uint16 where uint12 values have been scaled to uint16 values
                 # uint16 scaling is important for downstream manipulation as float or for visualization accuracy
@@ -406,10 +409,9 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
                 print(f'{canvas.shape}')
                 # canvas = read_uint12(data, coerce_to_uint16_values=False)
 
-                yield canvas.reshape((header_info['y'], header_info['x']))
-                # output[idx] = canvas.reshape((header_info['y'], header_info['x']))
+                output[idx] = canvas.reshape((header_info['y'], header_info['x']))
 
-            # yield output[:current_num_frames]
+            yield output[:current_num_frames]
 
 
 
