@@ -381,7 +381,7 @@ def read_part_data_file(file_name, header_info=None, frames_at_once=1024):
     start_index = get_header_size(file_name, header_info=header_info)
     read_len = frames_at_once * pixelInFrame_bit8
 
-    with open(spool_file, 'rb') as f:
+    with FliOpen(spool_file, 'rb') as f:
         f.seek(start_index)
 
         while True:
@@ -1391,8 +1391,11 @@ if __name__ == "__main__":
 
     file = "/bil/proj/rf1hillman/HOLiS_NPBB328_Cortex/Slab6/2025_08_22_HOLiS_NPBB328_Cortex_Slab06/NPBB328-Cortex-Slab06-run999-z13-y044-Exc-488nm-561nm-594nm-660nm_HiCAM FLUO_1875-ST-272.fli.zst"
     zarr_location = "/bil/users/awatson/test_hicam_out"
-    send_hicam_to_zarr_par_read_once(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
+    # send_hicam_to_zarr_par_read_once(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
                                      chunk_depth=128, chunk_lat=128, frames_at_once=1024)
+
+    send_hicam_to_zarr(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
+                       chunk_depth=128, frames_at_once=1024)
 
 
     #
