@@ -1397,7 +1397,7 @@ if __name__ == "__main__":
     # send_hicam_to_zarr_par_read_once(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
     #                                  chunk_depth=128, chunk_lat=128, frames_at_once=1024)
 
-    send_hicam_to_zarr(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
+    send_hicam_to_zarrsend_hicam_to_zarr(file, zarr_location, compressor_type='zstd', compressor_level=5, shuffle=1,
                        chunk_depth=128, frames_at_once=1024)
 
 
@@ -1427,4 +1427,13 @@ if __name__ == "__main__":
     # # run()
     # a = [open_hicam_array_as_aligned_color_dataset(zarr_locations[0])]
     # # a = [open_hicam_array_as_aligned_color_dataset(x) for x in zarr_locations]
+
+
+# header_info, _ = read_header(file2)
+# start_index = get_header_size(file2, header_info=header_info)
+# with FliOpen(file2) as f:
+#     f.seek(start_index)
+#     for idx, ii in enumerate(range(40)):
+#         a = f.read(1966080*1024)
+#         print(f'{idx} len {len(a)}')
 
